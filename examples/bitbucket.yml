@@ -1,0 +1,15 @@
+# Vendor scripts/upload.sh from a reviewed commit into ci/cracken-upload.sh.
+# Set CRACKEN_API_KEY as a secured variable, plus API URL and product UUID.
+# The self-hosted runner needs sh, curl >=7.76, jq and shasum/sha256sum.
+pipelines:
+  custom:
+    upload-sbom:
+      - step:
+          name: Upload existing bom.json
+          runs-on: [self.hosted, linux.shell]
+          script:
+            - set +x
+            - export VERSION="$BITBUCKET_COMMIT"
+            - export SBOM_FILE=bom.json WAIT=true FAIL_ON=high TIMEOUT=900
+            - sh ci/cracken-upload.sh
+# Restore bom.json from your build before calling the script.

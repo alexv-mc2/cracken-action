@@ -1,0 +1,19 @@
+name: Upload an existing SBOM
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  upload:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
+        with:
+          api-url: https://<your-crAcken-API-host>/functions/v1/api-v1
+          api-token: ${{ secrets.CRACKEN_API_KEY }}
+          project: ${{ vars.CRACKEN_PROJECT_ID }}
+          release: ${{ github.sha }}
+          wait: 'true'
+          fail-on: high

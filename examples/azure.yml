@@ -1,0 +1,20 @@
+# Vendor scripts/upload.sh from a reviewed commit into ci/cracken-upload.sh.
+# Configure a secret CRACKEN_API_KEY and non-secret API URL/product variables.
+trigger: none
+pool:
+  name: YourSelfHostedPool
+steps:
+  - checkout: self
+    persistCredentials: false
+  - script: sh ci/cracken-upload.sh
+    displayName: Upload existing bom.json
+    env:
+      CRACKEN_API_KEY: $(CRACKEN_API_KEY)
+      CRACKEN_API_URL: $(CRACKEN_API_URL)
+      CRACKEN_PROJECT_ID: $(CRACKEN_PROJECT_ID)
+      VERSION: $(Build.SourceVersion)
+      SBOM_FILE: bom.json
+      WAIT: 'true'
+      FAIL_ON: high
+      TIMEOUT: '900'
+# Restore bom.json from your build before calling the script.
