@@ -79,7 +79,7 @@ printf '%s
 ' "$CRACKEN_API_URL" | LC_ALL=C grep -q '[[:cntrl:]]' && fail 'The API URL is not valid.'
 api_url=${CRACKEN_API_URL%/}
 uuid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-validate_uuid() { printf '%s\n' "$1" | grep -Eq "$uuid_pattern" || fail 'The target identifier is not valid.'; }
+validate_uuid() { [ "${#1}" -eq 36 ] || fail 'The target identifier is not valid.'; printf '%s\n' "$1" | grep -Eq "$uuid_pattern" || fail 'The target identifier is not valid.'; }
 encode() { printf '%s' "$1" | jq -sRr @uri; }
 if [ -n "${CRACKEN_RELEASE_ID:-}" ]; then
   [ -z "${CRACKEN_PROJECT_ID:-}${CRACKEN_PROJECT_SLUG:-}${VERSION:-}" ] || fail 'Use release_id alone, or a product with version.'
@@ -150,30 +150,49 @@ request() {
   case "$http_status" in 2[0-9][0-9]) ;; 409) [ "$accept_409" = 1 ] || api_fail ;; *) api_fail ;; esac
 }
 request POST "$api_url/v1/sboms?$target"
-analysis_id=$(jq -er '.analysis_id | strings' "$response_dir/body" 2>/dev/null) || fail 'The API response did not contain an analysis identifier.'
-[ "${#analysis_id}" -eq 36 ] || fail 'The API returned an invalid analysis identifier.'
-printf '%s
-' "$analysis_id" | grep -Eq "$uuid_pattern" || fail 'The API returned an invalid analysis identifier.'
-# Only validated single-line values enter GitHub's output protocol.
+# Validate raw JSON strings before command substitution can strip trailing newlines.
+api_string() {
+  jq -er --arg field "$1" '
+    .[$field] | select(type == "string") |
+    select(explode | all(. >= 32 and . != 127))
+  ' "$response_dir/body" 2>/dev/null || fail "The API returned an invalid $1."
+}
+validate_status() {
+  case "$1" in queued|running|succeeded|failed|accepted) ;; *) fail 'The API returned an invalid analysis status.' ;; esac
+}
+analysis_id=$(api_string analysis_id)
+validate_uuid "$analysis_id"
+upload_id=$(api_string sbom_upload_id)
+validate_uuid "$upload_id"
+status=$(api_string status)
+validate_status "$status"
+# app_url is optional, but supplied URLs must be HTTPS and single-line.
+app_url=$(jq -er '
+  (if .app_url == null then "" else .app_url end) | select(type == "string") |
+  select(explode | all(. >= 32 and . != 127)) | . + "."
+' "$response_dir/body" 2>/dev/null) || fail 'Invalid app URL.'
+app_url=${app_url%.}
+case "$app_url" in
+  '') ;;
+  https://*)
+    printf '%s\n' "$app_url" | LC_ALL=C grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?([/?#][^[:space:]<>]*)?$' || fail 'Invalid app URL.'
+    case "$app_url" in *crk_*) fail 'Invalid app URL.' ;; esac ;;
+  *) fail 'Invalid app URL.' ;;
+esac
+# Validate the entire upload response before writing any GitHub output.
 output() { [ -z "${GITHUB_OUTPUT:-}" ] || printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"; }
 output analysis-id "$analysis_id"
-upload_id=$(jq -er '.sbom_upload_id | strings' "$response_dir/body" 2>/dev/null) || fail 'The API response did not contain an upload identifier.'
-validate_uuid "$upload_id"
 output upload-id "$upload_id"
-app_url=$(jq -r '.app_url // empty | strings' "$response_dir/body" 2>/dev/null) || fail 'Invalid app URL.'
-case "$app_url" in *crk_*) app_url= ;; esac
-# Avoid output protocol injection and unsafe link schemes; never follow API links.
-if printf '%s' "$app_url" | LC_ALL=C grep -q '[[:cntrl:]]'; then app_url=; fi
-case "$app_url" in https://*|/*|'') ;; *) app_url= ;; esac
 output app-url "$app_url"
-output analysis-status queued
+output analysis-status "$status"
 printf 'Analysis: %s\n' "$analysis_id"
 if [ "$WAIT" = 1 ]; then
   finished=0
   match_partial=unknown
   while [ "$(date +%s)" -lt "$deadline" ]; do
     request GET "$api_url/v1/analyses/$analysis_id"
-    status=$(jq -er '.status | strings' "$response_dir/body" 2>/dev/null) || fail 'The API response did not contain an analysis status.'
+    status=$(api_string status)
+    validate_status "$status"
     case "$status" in
       succeeded) output analysis-status "$status"; finished=1; match_partial=$(jq -r 'if .match_partial == false then "false" else "unknown" end' "$response_dir/body" 2>/dev/null) || match_partial=unknown; break ;;
       failed|accepted) output analysis-status "$status"; printf '%s\n' 'Analysis failed or was archived without analysis.' >&2; exit 2 ;;
@@ -214,6 +233,7 @@ if [ "$WAIT" = 1 ]; then
   done
   for severity in critical high medium low none unknown; do
     count=$(printf '%s' "$counts" | jq -r --arg severity "$severity" '.[$severity]')
+    case "$count" in ''|*[!0-9]*) fail 'The API returned an invalid findings count.' ;; esac
     output "$severity" "$count"
     [ -z "${GITHUB_STEP_SUMMARY:-}" ] || printf '%s: %s\n\n' "$severity" "$count" >> "$GITHUB_STEP_SUMMARY"
   done

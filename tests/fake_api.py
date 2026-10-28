@@ -32,7 +32,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403, {'error': {'code': 'insufficient_scope', 'message': message}})
         query = parse_qs(urlparse(self.path).query)
         assert ('release_id' in query) or ('version' in query and ('project_id' in query or 'project_slug' in query))
-        self.reply(202, {'analysis_id': ID, 'sbom_upload_id': ID, 'status': 'queued', 'app_url': '/products/test/releases/test'})
+        body = {'analysis_id': ID, 'sbom_upload_id': ID, 'status': 'queued', 'app_url': 'https://app.example/products/test/releases/test'}
+        for field in ('analysis_id', 'sbom_upload_id', 'status', 'app_url'):
+            for suffix, tail in (('multiline', '\ninjected=true'), ('cr', '\rinjected=true'), ('trailing', '\n')):
+                if mode == f'{field}-{suffix}':
+                    body[field] += tail
+        if mode == 'invalid-status':
+            body['status'] = 'unexpected'
+        if mode == 'invalid-url':
+            body['app_url'] = 'http://app.example/test'
+        self.reply(202, body)
 
     def do_GET(self):
         assert self.headers['Authorization'].startswith('Bearer crk_')
@@ -42,6 +51,8 @@ class Handler(BaseHTTPRequestHandler):
             if mode == 'slow':
                 time.sleep(3)
             status = {'timeout': 'running', 'failed': 'failed', 'accepted': 'accepted'}.get(mode, 'succeeded')
+            if mode == 'poll-injection':
+                status += '\ninjected=true'
             return self.reply(200, {'status': status, 'match_partial': None if mode == 'unknownpartial' else 'false' if mode == 'invalidpartial' else mode == 'partial'})
         if mode == 'notready':
             return self.reply(409, {'error': {'code': 'analysis_not_ready'}})
