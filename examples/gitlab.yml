@@ -1,0 +1,18 @@
+# Mirror this private repository into GitLab, preserving the commit SHA.
+include:
+  - project: your-group/cracken-action
+    ref: REPLACE_WITH_FULL_COMMIT_SHA
+    file: /gitlab/cracken.gitlab-ci.yml
+stages: [upload]
+upload-sbom:
+  extends: .cracken-upload
+  stage: upload
+  variables:
+    CRACKEN_ACTION_SHA: REPLACE_WITH_FULL_COMMIT_SHA
+    CRACKEN_SCRIPT_SHA256: REPLACE_WITH_UPLOAD_SCRIPT_SHA256
+    CRACKEN_PROJECT_ID: REPLACE_WITH_PRODUCT_UUID
+    SBOM_FILE: bom.json
+    WAIT: 'true'
+    FAIL_ON: high
+# Supply bom.json as a build artifact. Set CRACKEN_API_KEY and CRACKEN_REPO_TOKEN
+# as masked secrets, and CRACKEN_API_URL as a CI variable.

@@ -1,0 +1,83 @@
+name: Upload SBOM to crAcken
+description: Upload a JSON SBOM and optionally wait for analysis and enforce a severity threshold.
+inputs:
+  api-url:
+    description: crAcken API base URL, including /functions/v1/api-v1.
+    required: true
+  api-token:
+    description: Secret crAcken API key; never put it directly in YAML.
+    required: true
+  project:
+    description: Existing product UUID (POST project_id); use with release.
+  product:
+    description: Alias of project; do not set both.
+  project-slug:
+    description: Existing product slug (POST project_slug); alternative to project.
+  release:
+    description: Release version (POST version); required with a product identifier.
+  release-id:
+    description: Existing empty release UUID; alternative to product and release.
+  sbom-file:
+    description: JSON SBOM path; auto detects bom.json, sbom.cdx.json or one *.spdx.json.
+    default: ''
+  wait:
+    description: Wait for analysis and readable findings (requires analysis:read and findings:read).
+    default: 'false'
+  fail-on:
+    description: Fail on this severity or higher; none disables the gate. Enables waiting automatically.
+    default: none
+  timeout:
+    description: Overall upload, analysis and findings timeout in seconds (1–86400).
+    default: '900'
+outputs:
+  upload-id:
+    description: API sbom_upload_id.
+    value: ${{ steps.upload.outputs.upload-id }}
+  analysis-id:
+    description: API analysis_id.
+    value: ${{ steps.upload.outputs.analysis-id }}
+  analysis-status:
+    description: Latest observed API analysis status.
+    value: ${{ steps.upload.outputs.analysis-status }}
+  critical:
+    description: Critical findings count; empty without wait.
+    value: ${{ steps.upload.outputs.critical }}
+  high:
+    description: High findings count; empty without wait.
+    value: ${{ steps.upload.outputs.high }}
+  medium:
+    description: Medium findings count; empty without wait.
+    value: ${{ steps.upload.outputs.medium }}
+  low:
+    description: Low findings count; empty without wait.
+    value: ${{ steps.upload.outputs.low }}
+  none:
+    description: Findings labelled none; empty without wait.
+    value: ${{ steps.upload.outputs.none }}
+  unknown:
+    description: Findings with unknown severity; empty without wait.
+    value: ${{ steps.upload.outputs.unknown }}
+  app-url:
+    description: Release link if returned by the API.
+    value: ${{ steps.upload.outputs.app-url }}
+runs:
+  using: composite
+  steps:
+    - id: upload
+      shell: bash
+      env:
+        CRACKEN_API_URL: ${{ inputs.api-url }}
+        CRACKEN_API_KEY: ${{ inputs.api-token }}
+        CRACKEN_PROJECT_ID: ${{ inputs.project }}
+        CRACKEN_PRODUCT_ID: ${{ inputs.product }}
+        CRACKEN_PROJECT_SLUG: ${{ inputs.project-slug }}
+        CRACKEN_RELEASE_ID: ${{ inputs.release-id }}
+        VERSION: ${{ inputs.release }}
+        SBOM_FILE: ${{ inputs.sbom-file }}
+        WAIT: ${{ inputs.wait }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        TIMEOUT: ${{ inputs.timeout }}
+        CRACKEN_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set +x
+        sh "$CRACKEN_ACTION_PATH/scripts/upload.sh"

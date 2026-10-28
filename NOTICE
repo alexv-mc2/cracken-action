@@ -1,0 +1,9 @@
+crAcken Action
+Copyright 2026 crAcken contributors
+
+Licensed under the Apache License, Version 2.0.
+
+scripts/upload.sh is adapted from crAcken's own
+sbom-to-cra/docs/api/v1/ci-examples/upload.sh, read at commit af509c76b.
+DependencyTrack/gh-upload-sbom (Apache-2.0) informed input naming only;
+no DependencyTrack implementation code is included.
