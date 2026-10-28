@@ -26,6 +26,24 @@ run success 0
 grep -q '^high=1$' "$GITHUB_OUTPUT"
 grep -q '^unknown=1$' "$GITHUB_OUTPUT"
 grep -q '^upload-id=' "$GITHUB_OUTPUT"
+grep -Fxq 'analysis-id=11111111-1111-4111-8111-111111111111' "$GITHUB_OUTPUT"
+grep -Fxq 'upload-id=11111111-1111-4111-8111-111111111111' "$GITHUB_OUTPUT"
+grep -Fxq 'app-url=https://app.example/products/test/releases/test' "$GITHUB_OUTPUT"
+grep -Fxq 'analysis-status=succeeded' "$GITHUB_OUTPUT"
+grep -Fxq 'high: 1' "$GITHUB_STEP_SUMMARY"
+for field in analysis_id sbom_upload_id status app_url; do
+  for suffix in multiline cr trailing; do
+    run "$field-$suffix" 1
+    [[ ! -s "$GITHUB_OUTPUT" && ! -s "$GITHUB_STEP_SUMMARY" ]]
+  done
+done
+for mode in invalid-status invalid-url; do
+  run "$mode" 1
+  [[ ! -s "$GITHUB_OUTPUT" && ! -s "$GITHUB_STEP_SUMMARY" ]]
+done
+run poll-injection 1
+if grep -q 'injected' "$GITHUB_OUTPUT"; then echo 'FAIL injected output'; exit 1; fi
+[[ ! -s "$GITHUB_STEP_SUMMARY" ]]
 run error 1
 grep -q 'insufficient_scope: Denied' "$tmp/log"
 run leak 1
