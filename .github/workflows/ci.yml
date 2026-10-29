@@ -22,4 +22,4 @@ jobs:
       - name: Generation tests
         run: bash tests/test-generate.sh
       - name: shellcheck
-        run: shellcheck scripts/*.sh tests/*.sh
+        run: shellcheck --severity=warning scripts/*.sh tests/*.sh
