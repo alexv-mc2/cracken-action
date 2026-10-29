@@ -1,0 +1,25 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    # Required check: no paths filter and no job-level if, so it runs on every PR head.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Tools
+        run: |
+          jq --version; curl --version | head -1; python3 --version; shellcheck --version | head -2
+      - name: Upload tests
+        run: bash tests/test-upload.sh
+      - name: Generation tests
+        run: bash tests/test-generate.sh
+      - name: shellcheck
+        run: shellcheck --severity=warning scripts/*.sh tests/*.sh

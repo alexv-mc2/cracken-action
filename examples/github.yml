@@ -15,5 +15,27 @@ jobs:
           api-token: ${{ secrets.CRACKEN_API_KEY }}
           project: ${{ vars.CRACKEN_PROJECT_ID }}
           release: ${{ github.sha }}
+          sbom-file: bom.json
           wait: 'true'
           fail-on: high
+
+  generate-and-upload:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
+        id: cracken
+        with:
+          api-url: https://<your-crAcken-API-host>/functions/v1/api-v1
+          api-token: ${{ secrets.CRACKEN_API_KEY }}
+          project: ${{ vars.CRACKEN_PROJECT_ID }}
+          # Use a distinct release if both example jobs run in one workflow.
+          release: ${{ github.sha }}-generated
+          generate: syft
+          syft-version: '1.55.0'
+          scan-path: .
+          wait: 'true'
+          fail-on: high
+      # Archive ${{ steps.cracken.outputs.sbom-path }} with your reviewed artifact action.

@@ -1,6 +1,6 @@
 # crAcken CI upload
 
-Upload an existing JSON SBOM to the crAcken public API v1. Optionally wait for analysis, count findings across every results page and fail the build at a severity threshold. The composite GitHub Action and CI snippets use the same [scripts/upload.sh](scripts/upload.sh), adapted from crAcken's tested API example. This action does not install a generator or generate an SBOM.
+Upload an existing JSON SBOM to the crAcken public API v1. Optionally wait for analysis, count findings across every results page and fail the build at a severity threshold. The composite GitHub Action and CI snippets use the same [scripts/upload.sh](scripts/upload.sh), adapted from crAcken's tested API example. Set `generate: syft` to generate a CycloneDX JSON SBOM inside your CI before uploading it. The default `generate: none` keeps the existing upload behavior.
 
 An operator must enable the API in your environment. These files and local tests do not establish production availability. Copy the actual API base URL from crAcken's API keys page, retaining its path prefix. Examples use this placeholder:
 
@@ -10,7 +10,7 @@ https://<your-crAcken-API-host>/functions/v1/api-v1
 
 ## GitHub Action
 
-Make an SBOM from your build available in the workspace before this step. Configure the repository's private-action access policy for authorised consumers while this repository is private. Replace the pin with a reviewed full commit SHA:
+For the default upload mode, make an SBOM from your build available in the workspace before this step. Configure the repository's private-action access policy for authorised consumers while this repository is private. Replace the pin with a reviewed full commit SHA:
 
 ```yaml
 - uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
@@ -25,7 +25,7 @@ Make an SBOM from your build available in the workspace before this step. Config
     fail-on: high
 ```
 
-A [complete workflow example](examples/github.yml) uses a self-hosted runner. The runner needs Bash for the composite step, POSIX `sh`, curl **7.76+**, `jq`, `mktemp`, `date`, standard Unix utilities, and `sha256sum` or `shasum`. Nothing is installed automatically.
+A [complete workflow example](examples/github.yml) uses a self-hosted runner. The runner needs Bash for the composite step, POSIX `sh`, curl **7.76+**, `jq`, `mktemp`, `date`, standard Unix utilities, and `sha256sum` or `shasum`. Generation additionally needs `tar`; it downloads a verified syft binary only when the requested version is unavailable on PATH.
 
 ### Inputs
 
@@ -41,6 +41,10 @@ The environment column also describes the standalone script and GitLab job varia
 | `release` | `VERSION` | Version, 1–100 characters after trimming; maps to POST `version` |
 | `release-id` | `CRACKEN_RELEASE_ID` | Existing empty release UUID; maps to POST `release_id` |
 | `sbom-file` | `SBOM_FILE` | Empty: try `bom.json`, then `sbom.cdx.json`, then exactly one `*.spdx.json` in the current directory; multiple SPDX candidates fail |
+| `generate` | `CRACKEN_GENERATE` | `none`; `none` uploads an existing file, `syft` generates then uploads; incompatible with an explicit `sbom-file` |
+| `syft-version` | `SYFT_VERSION` | `1.55.0`; exact stable version without the `v` prefix |
+| `scan-path` | `SCAN_PATH` | `.`; directory to scan inside the customer CI workspace |
+| `syft-insecure-skip-pin` | `SYFT_INSECURE_SKIP_PIN` | `false`; explicitly accept an unpinned custom syft version (see below) |
 | `wait` | `WAIT` | `false`; accepts `true`/`false` or `1`/`0` |
 | `fail-on` | `FAIL_ON` | `none`; one of `none`, `critical`, `high`, `medium`, `low`; a severity forces waiting |
 | `timeout` | `TIMEOUT` | `900` seconds; positive integer, maximum `86400`, for upload and subsequent waiting |
@@ -51,6 +55,7 @@ Choose exactly one target: `project` (or its `product` alias) plus `release`; `p
 
 | Output | Value |
 |---|---|
+| `sbom-path` | Generated SBOM path, only with `generate: syft`; retained for later artifact steps in the same job |
 | `upload-id` | API `sbom_upload_id` |
 | `analysis-id` | API `analysis_id` |
 | `analysis-status` | Latest observed status; `queued` after upload without waiting |
@@ -91,9 +96,70 @@ Provide a separate masked `CRACKEN_REPO_TOKEN` with read-only repository content
 
 [Bitbucket](examples/bitbucket.yml) and [Azure Pipelines](examples/azure.yml) snippets call a reviewed copy of `scripts/upload.sh` vendored as `ci/cracken-upload.sh` in your consuming repository. Record its source commit and SHA-256 when copying it. These snippets are neither a Bitbucket pipe nor an Azure Marketplace extension.
 
+## Generate the SBOM in CI (syft)
+
+Generation runs inside the customer's CI. Source code stays there; only the generated SBOM is uploaded through the existing crAcken API. Licences are declared licences from package metadata as syft reports them, without a file-level licence scan. This feature does not run grype or produce VEX. Review the inventory before uploading: package metadata can reveal internal information.
+
+GitHub example (after checkout):
+
+```yaml
+- uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
+  id: cracken
+  with:
+    api-url: https://<your-crAcken-API-host>/functions/v1/api-v1
+    api-token: ${{ secrets.CRACKEN_API_KEY }}
+    project: ${{ vars.CRACKEN_PROJECT_ID }}
+    release: ${{ github.sha }}
+    generate: syft
+    syft-version: '1.55.0'
+    scan-path: .
+# A later artifact step can archive ${{ steps.cracken.outputs.sbom-path }}.
+```
+
+Do not set `sbom-file` together with `generate: syft`. The generator scans `dir:<scan-path>`, excludes `./.git`, and sets the source name and version from `GITHUB_REPOSITORY` / `GITHUB_SHA` or `CI_PROJECT_PATH` / `CI_COMMIT_SHA` when available. It writes CycloneDX JSON to a private temporary directory, then passes that exact file to the unchanged upload script. SBOM content is never printed. The generated file remains available until the runner removes its temporary files; archive it during the same job.
+
+GitLab example (use an access-controlled mirror of this repository):
+
+```yaml
+include:
+  - project: your-group/cracken-action
+    ref: REPLACE_WITH_FULL_COMMIT_SHA
+    file: /gitlab/cracken.gitlab-ci.yml
+
+generate-and-upload-sbom:
+  extends: .cracken-upload
+  variables:
+    CRACKEN_ACTION_SHA: REPLACE_WITH_FULL_COMMIT_SHA
+    CRACKEN_SCRIPT_SHA256: REPLACE_WITH_UPLOAD_SCRIPT_SHA256
+    CRACKEN_GENERATE_SCRIPT_SHA256: REPLACE_WITH_GENERATE_SCRIPT_SHA256
+    CRACKEN_PROJECT_ID: REPLACE_WITH_PRODUCT_UUID
+    CRACKEN_GENERATE: syft
+    SYFT_VERSION: '1.55.0'
+    SCAN_PATH: .
+    CRACKEN_SBOM_PATH_FILE: '$CI_PROJECT_DIR/cracken-sbom-path.txt'
+  after_script:
+    - cp "$(cat cracken-sbom-path.txt)" generated-sbom.cdx.json
+  artifacts:
+    paths: [generated-sbom.cdx.json]
+```
+
+Set masked `CRACKEN_API_KEY` and `CRACKEN_REPO_TOKEN` secrets and the `CRACKEN_API_URL` variable as for upload mode. Set the generator script pin from `shasum -a 256 scripts/generate-syft.sh` at the same reviewed commit. `CRACKEN_SBOM_PATH_FILE` optionally records the generated path for a later GitLab artifact step; it contains a path, not SBOM content. See both variants in [examples/github.yml](examples/github.yml) and [examples/gitlab.yml](examples/gitlab.yml).
+
+The default syft **1.55.0** was verified as the latest stable release through the [official GitHub release API](https://api.github.com/repos/anchore/syft/releases/latest) on 2026-10-29; [v1.55.0](https://github.com/anchore/syft/releases/tag/v1.55.0) was published on 2026-10-19. Its `syft_1.55.0_checksums.txt` SHA-256 is pinned in this repository:
+
+```text
+aba5ac8ee870bb93fd3b2058471ffe7e57492ba673b5e0bcbfca92006c2f4dc7
+```
+
+On Linux or macOS (`amd64` / `arm64`), an existing `syft` is reused only when its reported version exactly matches the pin. Otherwise the official release tarball and checksums file are downloaded from `anchore/syft` releases. The checksums file must match the repository pin, and the tarball must match its entry before extraction. Other platforms fail clearly; installation never uses `curl | sh`.
+
+A non-default `syft-version` without a repository checksum pin fails, including when that version is already on PATH. `syft-insecure-skip-pin: 'true'` (GitLab: `SYFT_INSECURE_SKIP_PIN: 'true'`) explicitly permits it. For a downloaded custom version, the tarball is still checked against the release checksums, but an attacker who replaces both assets could bypass that check. The override does not disable the pinned checksums-file verification for the default version. Prefer the default verified pin.
+
+Syft is licensed under Apache-2.0 and downloaded at run time from [anchore/syft releases](https://github.com/anchore/syft/releases). Its code is not vendored; see [NOTICE](NOTICE).
+
 ## Generate with cracken-sbom, then upload
 
-First install and verify a pinned [cracken-sbom](https://github.com/alexv-mc2/cracken-sbom) release and its pinned Syft engine using the generator's [verification instructions](https://github.com/alexv-mc2/cracken-sbom/blob/main/docs/VERIFICATION.md). This action performs no installation. For example, with verified tools already available and an unpacked root filesystem:
+First install and verify a pinned [cracken-sbom](https://github.com/alexv-mc2/cracken-sbom) release and its pinned Syft engine using the generator's [verification instructions](https://github.com/alexv-mc2/cracken-sbom/blob/main/docs/VERIFICATION.md). For this separate workflow, install the tools yourself. For example, with verified tools already available and an unpacked root filesystem:
 
 ```sh
 # Step 1: generate locally; the output directory must be new.
@@ -113,7 +179,7 @@ Keep `provenance.json` and `quality.json` in your own environment. Review the ge
 
 ## Security and limits
 
-Use HTTPS. HTTP is allowed only for loopback tests (`localhost`, `127.0.0.1`, `[::1]`). URLs must not contain credentials, queries or fragments. The script does not follow redirects. It disables shell tracing and passes the bearer header to curl over standard input, keeping it out of curl's command arguments. Do not trace or print secrets in your surrounding CI steps. API error messages are screened for API key text before logging.
+Use HTTPS. HTTP is allowed only for loopback tests (`localhost`, `127.0.0.1`, `[::1]`). URLs must not contain credentials, queries or fragments. The upload script does not follow redirects; official syft release downloads follow HTTPS redirects to GitHub asset storage. It disables shell tracing and passes the bearer header to curl over standard input, keeping it out of curl's command arguments. Do not trace or print secrets in your surrounding CI steps. API error messages are screened for API key text before logging.
 
 Send **one uncompressed JSON object**, supported as CycloneDX JSON, SPDX 2 JSON or SPDX 3 JSON-LD, at most **10 MiB (10,485,760 bytes)** including whitespace and an optional UTF-8 BOM. The script checks raw bytes before sending. XML, SPDX tag-value and ZIP/gzip bodies are not supported. The database's 16 MiB stored SPDX 3 ceiling does not increase the API upload allowance. Oversized requests receive HTTP 413 `payload_too_large`; a timeout is not proof of a received 413. The client uses a 120-second per-request ceiling, bounded by the remaining configured timeout.
 
@@ -128,6 +194,7 @@ Run the local fake-API suite without real credentials or an external API:
 ```sh
 shellcheck scripts/*.sh tests/*.sh # if installed
 bash tests/test-upload.sh
+bash tests/test-generate.sh
 python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' action.yml gitlab/cracken.gitlab-ci.yml examples/*.yml
 # If installed: actionlint examples/github.yml
 ```
