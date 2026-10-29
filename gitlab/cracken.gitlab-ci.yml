@@ -9,6 +9,11 @@
     CRACKEN_RELEASE_ID: ''
     VERSION: ''
     SBOM_FILE: ''
+    CRACKEN_GENERATE: none
+    SYFT_VERSION: '1.55.0'
+    SCAN_PATH: '.'
+    SYFT_INSECURE_SKIP_PIN: 'false'
+    CRACKEN_GENERATE_SCRIPT_SHA256: REPLACE_WITH_GENERATE_SCRIPT_SHA256
     WAIT: 'false'
     FAIL_ON: none
     TIMEOUT: '900'
@@ -23,8 +28,9 @@
       test -n "${CRACKEN_REPO_TOKEN:-}"
       printf '%s\n' "$CRACKEN_ACTION_SHA" | grep -Eq '^[0-9a-f]{40}$'
       printf '%s\n' "$CRACKEN_SCRIPT_SHA256" | grep -Eq '^[0-9a-f]{64}$'
-      script_file=$(mktemp)
-      trap 'rm -f "$script_file"' 0
+      script_dir=$(mktemp -d)
+      script_file=$script_dir/upload.sh
+      trap 'rm -rf "$script_dir"' 0
       printf 'Authorization: Bearer %s\n' "$CRACKEN_REPO_TOKEN" |
         curl -q --fail --silent --show-error --max-time 60 -H @- \
           -H 'Accept: application/vnd.github.raw+json' \
@@ -38,4 +44,22 @@
       test "$actual" = "$CRACKEN_SCRIPT_SHA256"
       if [ -z "$VERSION" ] && [ -z "$CRACKEN_RELEASE_ID" ]; then VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}; fi
       export VERSION
-      sh "$script_file"
+      case "$CRACKEN_GENERATE" in
+        none) sh "$script_file" ;;
+        syft)
+          printf '%s\n' "$CRACKEN_GENERATE_SCRIPT_SHA256" | grep -Eq '^[0-9a-f]{64}$'
+          printf 'Authorization: Bearer %s\n' "$CRACKEN_REPO_TOKEN" |
+            curl -q --fail --silent --show-error --max-time 60 -H @- \
+              -H 'Accept: application/vnd.github.raw+json' \
+              "https://api.github.com/repos/alexv-mc2/cracken-action/contents/scripts/generate-syft.sh?ref=$CRACKEN_ACTION_SHA" \
+              -o "$script_dir/generate-syft.sh"
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual=$(sha256sum "$script_dir/generate-syft.sh" | awk '{print $1}')
+          else
+            actual=$(shasum -a 256 "$script_dir/generate-syft.sh" | awk '{print $1}')
+          fi
+          test "$actual" = "$CRACKEN_GENERATE_SCRIPT_SHA256"
+          sh "$script_dir/generate-syft.sh"
+          ;;
+        *) printf '%s\n' 'CRACKEN_GENERATE must be none or syft.' >&2; exit 1 ;;
+      esac

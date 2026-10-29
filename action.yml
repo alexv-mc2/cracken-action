@@ -20,6 +20,18 @@ inputs:
   sbom-file:
     description: JSON SBOM path; auto detects bom.json, sbom.cdx.json or one *.spdx.json.
     default: ''
+  generate:
+    description: Generate a repository SBOM with syft, or upload an existing file (none).
+    default: none
+  syft-version:
+    description: Exact stable syft version (without v).
+    default: '1.55.0'
+  scan-path:
+    description: Directory to scan locally when generate is syft.
+    default: '.'
+  syft-insecure-skip-pin:
+    description: Allow a custom version without a repository-pinned checksums digest (insecure).
+    default: 'false'
   wait:
     description: Wait for analysis and readable findings (requires analysis:read and findings:read).
     default: 'false'
@@ -30,6 +42,9 @@ inputs:
     description: Overall upload, analysis and findings timeout in seconds (1–86400).
     default: '900'
 outputs:
+  sbom-path:
+    description: Generated SBOM path, retained for subsequent archive steps.
+    value: ${{ steps.upload.outputs.sbom-path }}
   upload-id:
     description: API sbom_upload_id.
     value: ${{ steps.upload.outputs.upload-id }}
@@ -74,10 +89,14 @@ runs:
         CRACKEN_RELEASE_ID: ${{ inputs.release-id }}
         VERSION: ${{ inputs.release }}
         SBOM_FILE: ${{ inputs.sbom-file }}
+        CRACKEN_GENERATE: ${{ inputs.generate }}
+        SYFT_VERSION: ${{ inputs.syft-version }}
+        SCAN_PATH: ${{ inputs.scan-path }}
+        SYFT_INSECURE_SKIP_PIN: ${{ inputs.syft-insecure-skip-pin }}
         WAIT: ${{ inputs.wait }}
         FAIL_ON: ${{ inputs.fail-on }}
         TIMEOUT: ${{ inputs.timeout }}
         CRACKEN_ACTION_PATH: ${{ github.action_path }}
       run: |
         set +x
-        sh "$CRACKEN_ACTION_PATH/scripts/upload.sh"
+        sh "$CRACKEN_ACTION_PATH/scripts/generate-syft.sh"
