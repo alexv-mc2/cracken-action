@@ -1,5 +1,6 @@
 # Vendor scripts/upload.sh from a reviewed commit into ci/cracken-upload.sh.
-# Set CRACKEN_API_KEY as a secured variable, plus API URL and product UUID.
+# Set CRACKEN_API_KEY as a secured variable, plus a product UUID.
+# CRACKEN_API_URL defaults to https://api.cracken.tech; override for another deployment.
 # The self-hosted runner needs sh, curl >=7.76, jq and shasum/sha256sum.
 pipelines:
   custom:

@@ -21,5 +21,7 @@ jobs:
         run: bash tests/test-upload.sh
       - name: Generation tests
         run: bash tests/test-generate.sh
+      - name: GitLab template tests
+        run: bash tests/test-gitlab.sh
       - name: shellcheck
         run: shellcheck --severity=warning scripts/*.sh tests/*.sh

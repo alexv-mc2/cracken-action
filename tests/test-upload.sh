@@ -15,7 +15,11 @@ printf '{"bomFormat":"CycloneDX","secret-content":"do-not-log"}' > "$SBOM_FILE"
 checks=0
 run() {
   local mode=$1 expected=$2 actual=0
-  export CRACKEN_API_URL="http://127.0.0.1:$port/$mode/functions/v1/api-v1"
+  if [[ "${3:-}" == default ]]; then
+    unset CRACKEN_API_URL
+  else
+    export CRACKEN_API_URL="${3:-http://127.0.0.1:$port/$mode/functions/v1/api-v1}"
+  fi
   : > "$GITHUB_OUTPUT"; : > "$GITHUB_STEP_SUMMARY"
   sh scripts/upload.sh > "$tmp/log" 2>&1 || actual=$?
   if [[ "$actual" != "$expected" ]]; then cat "$tmp/log"; echo "FAIL $mode: expected $expected, got $actual"; exit 1; fi
@@ -31,6 +35,29 @@ grep -Fxq 'upload-id=11111111-1111-4111-8111-111111111111' "$GITHUB_OUTPUT"
 grep -Fxq 'app-url=https://app.example/products/test/releases/test' "$GITHUB_OUTPUT"
 grep -Fxq 'analysis-status=succeeded' "$GITHUB_OUTPUT"
 grep -Fxq 'high: 1' "$GITHUB_STEP_SUMMARY"
+# Exercise host-only and trailing-slash overrides through upload, polling and pagination.
+run success 0 "http://127.0.0.1:$port/success"
+run success 0 "http://127.0.0.1:$port/success/"
+# Intercept the default public host locally; never contact the real API with test keys.
+mkdir "$tmp/bin"
+cat > "$tmp/bin/curl" <<'CURL'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == --version ]]; then exec "$REAL_CURL" "$@"; fi
+args=("$@")
+last=$(($# - 1))
+url=${args[$last]}
+[[ "$url" == https://api.cracken.tech/v1/* ]] || exit 99
+printf '%s\n' "$url" >> "$CURL_REQUESTS"
+args[$last]="$CURL_TEST_BASE${url#https://api.cracken.tech}"
+exec "$REAL_CURL" "${args[@]}"
+CURL
+chmod +x "$tmp/bin/curl"
+REAL_CURL=$(command -v curl) CURL_TEST_BASE="http://127.0.0.1:$port/success" CURL_REQUESTS="$tmp/requests" PATH="$tmp/bin:$PATH" run success 0 default
+[[ $(wc -l < "$tmp/requests") -eq 4 ]]
+grep -q '^https://api.cracken.tech/v1/sboms?' "$tmp/requests"
+grep -Fxq "https://api.cracken.tech/v1/analyses/$CRACKEN_PROJECT_ID" "$tmp/requests"
+grep -q '^https://api.cracken.tech/v1/findings?' "$tmp/requests"
 for field in analysis_id sbom_upload_id status app_url; do
   for suffix in multiline cr trailing; do
     run "$field-$suffix" 1

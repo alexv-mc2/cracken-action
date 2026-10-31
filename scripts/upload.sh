@@ -50,7 +50,7 @@ case "$SBOM_FILE" in /*) ;; *) SBOM_FILE=./$SBOM_FILE ;; esac
 curl_version=$(curl --version | awk 'NR == 1 { print $2 }')
 printf '%s
 ' "$curl_version" | awk -F. '{ exit !($1 > 7 || ($1 == 7 && $2 >= 76)) }' || fail 'curl 7.76 or later is required.'
-[ -n "${CRACKEN_API_URL:-}" ] || fail 'Set CRACKEN_API_URL.'
+CRACKEN_API_URL=${CRACKEN_API_URL:-https://api.cracken.tech}
 [ -n "${CRACKEN_API_KEY:-}" ] || fail 'Set CRACKEN_API_KEY as a CI secret.'
 [ "${#CRACKEN_API_KEY}" -eq 60 ] || fail 'The API key is not valid.'
 printf '%s
