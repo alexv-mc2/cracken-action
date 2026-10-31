@@ -1,4 +1,6 @@
-# Mirror this private repository into GitLab, preserving the commit SHA.
+# Mirror this repository into GitLab, preserving the commit SHA.
+# Once public, include:remote can use the GitHub raw URL pinned to the same SHA:
+# https://raw.githubusercontent.com/alexv-mc2/cracken-action/REPLACE_WITH_FULL_COMMIT_SHA/gitlab/cracken.gitlab-ci.yml
 include:
   - project: your-group/cracken-action
     ref: REPLACE_WITH_FULL_COMMIT_SHA
@@ -14,9 +16,12 @@ upload-sbom:
     SBOM_FILE: bom.json
     WAIT: 'true'
     FAIL_ON: high
-# Supply bom.json as a build artifact. Set CRACKEN_API_KEY and CRACKEN_REPO_TOKEN
-# as masked secrets. CRACKEN_API_URL defaults to https://api.cracken.tech;
-# override it as a CI variable only for another deployment.
+# Supply bom.json as a build artifact. Set CRACKEN_API_KEY as a masked secret.
+# CRACKEN_REPO_TOKEN is optional once public; unset/empty sends no Authorization
+# header. If set, use a separate masked GitHub read-only contents token. Both
+# script SHA-256 pins remain mandatory for their respective modes.
+# CRACKEN_API_URL defaults to https://api.cracken.tech; override it as a CI
+# variable only for another deployment.
 
 # Independent generation variant; no SBOM_FILE or prior SBOM artifact is required.
 generate-and-upload-sbom:

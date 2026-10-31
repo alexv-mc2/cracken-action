@@ -78,7 +78,7 @@ When waiting, matching coverage must be explicitly complete (`match_partial: fal
 
 ## GitLab, Bitbucket and Azure
 
-Use [gitlab/cracken.gitlab-ci.yml](gitlab/cracken.gitlab-ci.yml) via `include: project:` from an access-controlled GitLab mirror. Pin the include to a full commit SHA and extend `.cracken-upload`, as shown in [examples/gitlab.yml](examples/gitlab.yml). GitLab `include: remote:` needs an anonymously readable HTTPS copy; it cannot directly include this private GitHub repository.
+Use [gitlab/cracken.gitlab-ci.yml](gitlab/cracken.gitlab-ci.yml) via `include: project:` from an access-controlled GitLab mirror. Pin the include to a full commit SHA and extend `.cracken-upload`, as shown in [examples/gitlab.yml](examples/gitlab.yml). Once this repository is public, GitLab `include: remote:` can instead use `https://raw.githubusercontent.com/alexv-mc2/cracken-action/REPLACE_WITH_FULL_COMMIT_SHA/gitlab/cracken.gitlab-ci.yml`.
 
 The job downloads the same upload script from GitHub at `CRACKEN_ACTION_SHA` and verifies it against `CRACKEN_SCRIPT_SHA256` before execution. Set both pins from the reviewed commit:
 
@@ -87,7 +87,7 @@ git rev-parse HEAD
 shasum -a 256 scripts/upload.sh
 ```
 
-Provide a separate masked `CRACKEN_REPO_TOKEN` with read-only repository contents access for that private download, and a masked/protected `CRACKEN_API_KEY` for uploads. Never reuse the API key as a GitHub repository credential. The runner needs the upload dependencies plus `sha256sum` or `shasum` for the template's checksum verification. Make your SBOM available as a build artifact.
+Provide a masked/protected `CRACKEN_API_KEY` for uploads. Once this repository is public, `CRACKEN_REPO_TOKEN` is optional: unset or empty downloads send no Authorization header. If set, the separate masked GitHub token must have read-only repository contents access; the job keeps using an authenticated download. Both paths require the same commit and SHA-256 pins; missing or mismatched hashes fail before the affected script executes. Never reuse the API key as a GitHub repository credential. The runner needs the upload dependencies plus `sha256sum` or `shasum` for the template's checksum verification. Make your SBOM available as a build artifact.
 
 [Bitbucket](examples/bitbucket.yml) and [Azure Pipelines](examples/azure.yml) snippets call a reviewed copy of `scripts/upload.sh` vendored as `ci/cracken-upload.sh` in your consuming repository. Record its source commit and SHA-256 when copying it. These snippets are neither a Bitbucket pipe nor an Azure Marketplace extension.
 
@@ -137,7 +137,7 @@ generate-and-upload-sbom:
     paths: [generated-sbom.cdx.json]
 ```
 
-Set masked `CRACKEN_API_KEY` and `CRACKEN_REPO_TOKEN` secrets as for upload mode. Set `CRACKEN_API_URL` only to override the public API base. Set the generator script pin from `shasum -a 256 scripts/generate-syft.sh` at the same reviewed commit. `CRACKEN_SBOM_PATH_FILE` optionally records the generated path for a later GitLab artifact step; it contains a path, not SBOM content. See both variants in [examples/github.yml](examples/github.yml) and [examples/gitlab.yml](examples/gitlab.yml).
+Set masked `CRACKEN_API_KEY` as for upload mode. `CRACKEN_REPO_TOKEN` is optional once this repository is public, with the same authenticated behavior when set. Set `CRACKEN_API_URL` only to override the public API base. Set the generator script pin from `shasum -a 256 scripts/generate-syft.sh` at the same reviewed commit. `CRACKEN_SBOM_PATH_FILE` optionally records the generated path for a later GitLab artifact step; it contains a path, not SBOM content. See both variants in [examples/github.yml](examples/github.yml) and [examples/gitlab.yml](examples/gitlab.yml).
 
 The default syft **1.55.0** was verified as the latest stable release through the [official GitHub release API](https://api.github.com/repos/anchore/syft/releases/latest) on 2026-10-29; [v1.55.0](https://github.com/anchore/syft/releases/tag/v1.55.0) was published on 2026-10-19. Its `syft_1.55.0_checksums.txt` SHA-256 is pinned in this repository:
 
@@ -181,7 +181,7 @@ API write limits are 10 requests/minute per key, 20/minute and 200/day per compa
 
 ## Versioning and local checks
 
-Pin the Action, template and script to reviewed full commit SHAs. A moving `v1` compatibility tag will be introduced later; it is not created by this work. This repository currently remains private. Publication and API rollout are separate operator actions.
+Pin the Action, template and script to reviewed full commit SHAs. A moving `v1` compatibility tag will be introduced later; it is not created by this work. Public downloads require public repository visibility. Publication and API rollout are separate operator actions.
 
 Run the local fake-API suite without real credentials or an external API:
 
@@ -189,6 +189,7 @@ Run the local fake-API suite without real credentials or an external API:
 shellcheck scripts/*.sh tests/*.sh # if installed
 bash tests/test-upload.sh
 bash tests/test-generate.sh
+bash tests/test-gitlab.sh
 python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' action.yml gitlab/cracken.gitlab-ci.yml examples/*.yml
 # If installed: actionlint examples/github.yml
 ```
