@@ -1,3 +1,4 @@
+# api-url defaults to https://api.cracken.tech; set it only for another deployment.
 name: Upload an existing SBOM
 on: workflow_dispatch
 permissions:
@@ -11,7 +12,6 @@ jobs:
           persist-credentials: false
       - uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
         with:
-          api-url: https://<your-crAcken-API-host>/functions/v1/api-v1
           api-token: ${{ secrets.CRACKEN_API_KEY }}
           project: ${{ vars.CRACKEN_PROJECT_ID }}
           release: ${{ github.sha }}
@@ -28,7 +28,6 @@ jobs:
       - uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
         id: cracken
         with:
-          api-url: https://<your-crAcken-API-host>/functions/v1/api-v1
           api-token: ${{ secrets.CRACKEN_API_KEY }}
           project: ${{ vars.CRACKEN_PROJECT_ID }}
           # Use a distinct release if both example jobs run in one workflow.

@@ -2,11 +2,7 @@
 
 Upload an existing JSON SBOM to the crAcken public API v1. Optionally wait for analysis, count findings across every results page and fail the build at a severity threshold. The composite GitHub Action and CI snippets use the same [scripts/upload.sh](scripts/upload.sh), adapted from crAcken's tested API example. Set `generate: syft` to generate a CycloneDX JSON SBOM inside your CI before uploading it. The default `generate: none` keeps the existing upload behavior.
 
-An operator must enable the API in your environment. These files and local tests do not establish production availability. Copy the actual API base URL from crAcken's API keys page, retaining its path prefix. Examples use this placeholder:
-
-```text
-https://<your-crAcken-API-host>/functions/v1/api-v1
-```
+The Action, standalone scripts and GitLab template default to `https://api.cracken.tech`. Supply your secret API key and SBOM target; no API URL configuration is needed. The upload script appends `/v1/sboms`, `/v1/analyses/<id>` and `/v1/findings`, so the base must **not** include `/v1`. To use another deployment, override `api-url` (Action) or `CRACKEN_API_URL` (scripts and GitLab), retaining any deployment-specific prefix. A trailing slash is accepted.
 
 ## GitHub Action
 
@@ -16,7 +12,6 @@ For the default upload mode, make an SBOM from your build available in the works
 - uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
   id: cracken
   with:
-    api-url: https://<your-crAcken-API-host>/functions/v1/api-v1
     api-token: ${{ secrets.CRACKEN_API_KEY }}
     project: ${{ vars.CRACKEN_PROJECT_ID }}
     release: ${{ github.sha }}
@@ -33,7 +28,7 @@ The environment column also describes the standalone script and GitLab job varia
 
 | Action input | Environment variable | Default / meaning |
 |---|---|---|
-| `api-url` | `CRACKEN_API_URL` | Required API base URL, including `/functions/v1/api-v1` |
+| `api-url` | `CRACKEN_API_URL` | `https://api.cracken.tech`; optional override, without the endpoint `/v1` suffix |
 | `api-token` | `CRACKEN_API_KEY` | Required secret service-account API key |
 | `project` | `CRACKEN_PROJECT_ID` | Existing product UUID; maps to POST `project_id` |
 | `product` | `CRACKEN_PRODUCT_ID` | Alias of `project`; do not set both |
@@ -106,7 +101,6 @@ GitHub example (after checkout):
 - uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
   id: cracken
   with:
-    api-url: https://<your-crAcken-API-host>/functions/v1/api-v1
     api-token: ${{ secrets.CRACKEN_API_KEY }}
     project: ${{ vars.CRACKEN_PROJECT_ID }}
     release: ${{ github.sha }}
@@ -143,7 +137,7 @@ generate-and-upload-sbom:
     paths: [generated-sbom.cdx.json]
 ```
 
-Set masked `CRACKEN_API_KEY` and `CRACKEN_REPO_TOKEN` secrets and the `CRACKEN_API_URL` variable as for upload mode. Set the generator script pin from `shasum -a 256 scripts/generate-syft.sh` at the same reviewed commit. `CRACKEN_SBOM_PATH_FILE` optionally records the generated path for a later GitLab artifact step; it contains a path, not SBOM content. See both variants in [examples/github.yml](examples/github.yml) and [examples/gitlab.yml](examples/gitlab.yml).
+Set masked `CRACKEN_API_KEY` and `CRACKEN_REPO_TOKEN` secrets as for upload mode. Set `CRACKEN_API_URL` only to override the public API base. Set the generator script pin from `shasum -a 256 scripts/generate-syft.sh` at the same reviewed commit. `CRACKEN_SBOM_PATH_FILE` optionally records the generated path for a later GitLab artifact step; it contains a path, not SBOM content. See both variants in [examples/github.yml](examples/github.yml) and [examples/gitlab.yml](examples/gitlab.yml).
 
 The default syft **1.55.0** was verified as the latest stable release through the [official GitHub release API](https://api.github.com/repos/anchore/syft/releases/latest) on 2026-10-29; [v1.55.0](https://github.com/anchore/syft/releases/tag/v1.55.0) was published on 2026-10-19. Its `syft_1.55.0_checksums.txt` SHA-256 is pinned in this repository:
 
@@ -169,7 +163,7 @@ First install and verify a pinned [cracken-sbom](https://github.com/alexv-mc2/cr
   --output /work/evidence/firmware-1.2.3
 
 # Step 2: upload only the SBOM, with credentials supplied by the CI secret manager.
-export CRACKEN_API_URL='https://<your-crAcken-API-host>/functions/v1/api-v1'
+# CRACKEN_API_URL defaults to https://api.cracken.tech; override only for another deployment.
 export CRACKEN_PROJECT_ID='00000000-0000-0000-0000-000000000000'
 export VERSION=1.2.3 SBOM_FILE=/work/evidence/firmware-1.2.3/sbom.cdx.json
 WAIT=true FAIL_ON=high sh scripts/upload.sh
@@ -199,7 +193,7 @@ python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' ac
 # If installed: actionlint examples/github.yml
 ```
 
-Tests require Bash and Python 3 in addition to the upload dependencies; the YAML check needs PyYAML. There are no TypeScript sources or TypeScript typecheck in this shell/Python repository. There are no repository workflows that run on GitHub-hosted runners.
+Tests require Bash and Python 3 in addition to the upload dependencies; the YAML check needs PyYAML. There are no TypeScript sources or TypeScript typecheck in this shell/Python repository. `.github/workflows/ci.yml` runs the test suites and shellcheck on GitHub-hosted runners.
 
 ## License and reuse
 

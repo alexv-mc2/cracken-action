@@ -1,9 +1,13 @@
 name: Upload SBOM to crAcken
 description: Upload a JSON SBOM and optionally wait for analysis and enforce a severity threshold.
+branding:
+  icon: shield
+  color: blue
 inputs:
   api-url:
-    description: crAcken API base URL, including /functions/v1/api-v1.
-    required: true
+    description: crAcken API base URL; /v1 endpoint paths are appended automatically.
+    required: false
+    default: https://api.cracken.tech
   api-token:
     description: Secret crAcken API key; never put it directly in YAML.
     required: true

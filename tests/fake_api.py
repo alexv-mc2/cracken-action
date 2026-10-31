@@ -25,8 +25,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.rfile.read(int(self.headers['Content-Length']))
         assert self.headers['Authorization'].startswith('Bearer crk_')
-        assert '/functions/v1/api-v1/v1/' in self.path
-        mode = self.path.split('/')[1]
+        path = urlparse(self.path).path
+        mode = path.split('/')[1]
+        prefix = f'/{mode}'
+        if path.startswith(prefix + '/functions/v1/api-v1/'):
+            prefix += '/functions/v1/api-v1'
+        assert path == prefix + '/v1/sboms'
         if mode in ('error', 'leak'):
             message = 'Denied' if mode == 'error' else self.headers['Authorization']
             return self.reply(403, {'error': {'code': 'insufficient_scope', 'message': message}})
@@ -45,8 +49,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         assert self.headers['Authorization'].startswith('Bearer crk_')
-        assert '/functions/v1/api-v1/v1/' in self.path
-        mode = self.path.split('/')[1]
+        path = urlparse(self.path).path
+        mode = path.split('/')[1]
+        prefix = f'/{mode}'
+        if path.startswith(prefix + '/functions/v1/api-v1/'):
+            prefix += '/functions/v1/api-v1'
+        assert path in (prefix + '/v1/analyses/' + ID, prefix + '/v1/findings')
         if '/analyses/' in self.path:
             if mode == 'slow':
                 time.sleep(3)

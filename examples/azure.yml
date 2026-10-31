@@ -1,5 +1,6 @@
 # Vendor scripts/upload.sh from a reviewed commit into ci/cracken-upload.sh.
-# Configure a secret CRACKEN_API_KEY and non-secret API URL/product variables.
+# Configure a secret CRACKEN_API_KEY and a non-secret product UUID.
+# CRACKEN_API_URL defaults to https://api.cracken.tech; override for another deployment.
 trigger: none
 pool:
   name: YourSelfHostedPool
@@ -10,7 +11,6 @@ steps:
     displayName: Upload existing bom.json
     env:
       CRACKEN_API_KEY: $(CRACKEN_API_KEY)
-      CRACKEN_API_URL: $(CRACKEN_API_URL)
       CRACKEN_PROJECT_ID: $(CRACKEN_PROJECT_ID)
       VERSION: $(Build.SourceVersion)
       SBOM_FILE: bom.json

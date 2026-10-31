@@ -2,7 +2,7 @@
 # Remote includes require an anonymously accessible HTTPS copy; this GitHub repo is private.
 .cracken-upload:
   variables:
-    CRACKEN_API_URL: 'https://<your-crAcken-API-host>/functions/v1/api-v1'
+    CRACKEN_API_URL: 'https://api.cracken.tech'
     CRACKEN_PROJECT_ID: ''
     CRACKEN_PRODUCT_ID: ''
     CRACKEN_PROJECT_SLUG: ''
