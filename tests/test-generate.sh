@@ -53,6 +53,17 @@ sbom=$(sed -n 's/^sbom-path=//p' "$GITHUB_OUTPUT")
 [[ -r "$sbom" && "$sbom" = /* && "$(cat "$CRACKEN_SBOM_PATH_FILE")" = "$sbom" ]]
 grep -Fxq "dir:$SCAN_PATH" "$FAKE_SYFT_ARGS"
 grep -Fxq './.git' "$FAKE_SYFT_ARGS"
+# Check option/value pairs so unrelated arguments cannot satisfy the exclusions.
+python3 - "$FAKE_SYFT_ARGS" <<'PYTEST'
+from pathlib import Path
+import sys
+args = Path(sys.argv[1]).read_text().splitlines()
+exclusions = [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == "--exclude"]
+assert "./.github" in exclusions, "CI tooling directory must be excluded"
+selection = args[args.index("--select-catalogers") + 1].split(",")
+assert "-github-actions-usage-cataloger" in selection
+assert "-github-action-workflow-usage-cataloger" in selection
+PYTEST
 grep -Fxq -- '--source-name' "$FAKE_SYFT_ARGS"
 grep -Fxq "$GITHUB_REPOSITORY" "$FAKE_SYFT_ARGS"
 grep -Fxq "$GITHUB_SHA" "$FAKE_SYFT_ARGS"
