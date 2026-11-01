@@ -88,7 +88,9 @@ fi
 sbom_path=$tmp/cracken-sbom.cdx.json
 # Ignore repository/user syft configuration that could enable source-content capture.
 printf '{}\n' > "$tmp/syft.yaml"
-set -- scan "dir:$scan_path" -o "cyclonedx-json=$sbom_path" --exclude './.git' --config "$tmp/syft.yaml" --enrich none
+set -- scan "dir:$scan_path" -o "cyclonedx-json=$sbom_path" --exclude './.git' --exclude './.github' \
+  --select-catalogers '-github-actions-usage-cataloger,-github-action-workflow-usage-cataloger' \
+  --config "$tmp/syft.yaml" --enrich none
 source_name=${GITHUB_REPOSITORY:-${CI_PROJECT_PATH:-}}
 source_version=${GITHUB_SHA:-${CI_COMMIT_SHA:-}}
 [ -z "$source_name" ] || set -- "$@" --source-name "$source_name"

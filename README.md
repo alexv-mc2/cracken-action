@@ -110,7 +110,7 @@ GitHub example (after checkout):
 # A later artifact step can archive ${{ steps.cracken.outputs.sbom-path }}.
 ```
 
-Do not set `sbom-file` together with `generate: syft`. The generator scans `dir:<scan-path>`, excludes `./.git`, and sets the source name and version from `GITHUB_REPOSITORY` / `GITHUB_SHA` or `CI_PROJECT_PATH` / `CI_COMMIT_SHA` when available. It writes CycloneDX JSON to a private temporary directory, then passes that exact file to the unchanged upload script. SBOM content is never printed. The generated file remains available until the runner removes its temporary files; archive it during the same job.
+Do not set `sbom-file` together with `generate: syft`. The generator scans `dir:<scan-path>`, excludes `./.git` and `./.github`, disables the `github-actions-usage-cataloger` and `github-action-workflow-usage-cataloger` catalogers so CI tooling is left out of the product inventory, and sets the source name and version from `GITHUB_REPOSITORY` / `GITHUB_SHA` or `CI_PROJECT_PATH` / `CI_COMMIT_SHA` when available. It writes CycloneDX JSON to a private temporary directory, then passes that exact file to the unchanged upload script. The source directory remains in CycloneDX `metadata.component`; package metadata files such as `package-lock.json` may still appear in `components[]` with type `file`. These are retained for server-side classification. SBOM content is never printed. The generated file remains available until the runner removes its temporary files; archive it during the same job.
 
 GitLab example (use an access-controlled mirror of this repository):
 
