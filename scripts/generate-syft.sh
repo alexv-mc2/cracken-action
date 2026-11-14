@@ -7,10 +7,30 @@ fail() { printf '%s\n' "$1" >&2; exit 1; }
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 case "${CRACKEN_GENERATE:-none}" in
   none) exec sh "$script_dir/upload.sh" ;;
-  syft) ;;
-  *) fail 'CRACKEN_GENERATE must be none or syft.' ;;
+  syft|yocto-pack|convert-spdx) ;;
+  *) fail 'CRACKEN_GENERATE must be none, syft, yocto-pack or convert-spdx.' ;;
 esac
-[ -z "${SBOM_FILE:-}" ] || fail 'Do not combine SBOM_FILE (sbom-file) with generate: syft.'
+[ -z "${SBOM_FILE:-}" ] || fail 'Do not combine SBOM_FILE (sbom-file) with generation.'
+if [ "${CRACKEN_GENERATE:-none}" != syft ]; then
+  [ -n "${GENERATOR_INPUT:-}" ] || fail 'Set generator-input for yocto-pack or convert-spdx.'
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/cracken-generated.XXXXXXXX")
+  tmp=$(CDPATH='' cd -- "$tmp" && pwd)
+  complete=false
+  cleanup_generated() { if [ "$complete" != true ]; then rm -rf "$tmp"; fi; }
+  trap cleanup_generated 0
+  trap 'exit 1' HUP INT TERM
+  case "$CRACKEN_GENERATE" in
+    yocto-pack) sbom_path=$tmp/yocto.zip; bash "$script_dir/yocto-pack.sh" "$GENERATOR_INPUT" "$sbom_path" ;;
+    convert-spdx) sbom_path=$tmp/converted.spdx.json; sh "$script_dir/convert-spdx.sh" "$GENERATOR_INPUT" "$sbom_path" ;;
+  esac
+  case "$sbom_path" in *'
+'*|*''*) fail 'The temporary SBOM path must be single-line.' ;; esac
+  [ -z "${GITHUB_OUTPUT:-}" ] || printf 'sbom-path=%s\n' "$sbom_path" >> "$GITHUB_OUTPUT"
+  [ -z "${CRACKEN_SBOM_PATH_FILE:-}" ] || printf '%s\n' "$sbom_path" > "$CRACKEN_SBOM_PATH_FILE"
+  complete=true
+  SBOM_FILE=$sbom_path sh "$script_dir/upload.sh"
+  exit $?
+fi
 default_version=1.55.0
 # Official release asset fetched and hashed on 2026-10-29; also matches GitHub asset digest.
 pinned_checksums_sha256=aba5ac8ee870bb93fd3b2058471ffe7e57492ba673b5e0bcbfca92006c2f4dc7

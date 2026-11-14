@@ -1,6 +1,6 @@
 # crAcken CI upload
 
-Upload an existing JSON SBOM to the crAcken public API v1. Optionally wait for analysis, count findings across every results page and fail the build at a severity threshold. The composite GitHub Action and CI snippets use the same [scripts/upload.sh](scripts/upload.sh), adapted from crAcken's tested API example. Set `generate: syft` to generate a CycloneDX JSON SBOM inside your CI before uploading it. The default `generate: none` keeps the existing upload behavior.
+Upload an existing JSON or ZIP SBOM to the crAcken public API v1. Optionally wait for analysis, count findings across every results page and fail the build at a severity threshold. The composite GitHub Action and CI snippets use the same [scripts/upload.sh](scripts/upload.sh), adapted from crAcken's tested API example. Set `generate: syft` to generate a CycloneDX JSON SBOM inside your CI before uploading it. The default `generate: none` keeps the existing upload behavior.
 
 The Action, standalone scripts and GitLab template default to `https://api.cracken.tech`. Supply your secret API key and SBOM target; no API URL configuration is needed. The upload script appends `/v1/sboms`, `/v1/analyses/<id>` and `/v1/findings`, so the base must **not** include `/v1`. To use another deployment, override `api-url` (Action) or `CRACKEN_API_URL` (scripts and GitLab), retaining any deployment-specific prefix. A trailing slash is accepted.
 
@@ -36,7 +36,8 @@ The environment column also describes the standalone script and GitLab job varia
 | `release` | `VERSION` | Version, 1–100 characters after trimming; maps to POST `version` |
 | `release-id` | `CRACKEN_RELEASE_ID` | Existing empty release UUID; maps to POST `release_id` |
 | `sbom-file` | `SBOM_FILE` | Empty: try `bom.json`, then `sbom.cdx.json`, then exactly one `*.spdx.json` in the current directory; multiple SPDX candidates fail |
-| `generate` | `CRACKEN_GENERATE` | `none`; `none` uploads an existing file, `syft` generates then uploads; incompatible with an explicit `sbom-file` |
+| `generate` | `CRACKEN_GENERATE` | `none`; `none` uploads an existing file; `syft`, `yocto-pack`, and `convert-spdx` generate then upload; generation is incompatible with `sbom-file` |
+| `generator-input` | `GENERATOR_INPUT` | Required input path for `yocto-pack` or `convert-spdx` |
 | `syft-version` | `SYFT_VERSION` | `1.55.0`; exact stable version without the `v` prefix |
 | `scan-path` | `SCAN_PATH` | `.`; directory to scan inside the customer CI workspace |
 | `syft-insecure-skip-pin` | `SYFT_INSECURE_SKIP_PIN` | `false`; explicitly accept an unpinned custom syft version (see below) |
@@ -46,11 +47,17 @@ The environment column also describes the standalone script and GitLab job varia
 
 Choose exactly one target: `project` (or its `product` alias) plus `release`; `project-slug` plus `release`; or `release-id` alone. Products must already exist. Each active release accepts one SBOM. An identical rerun uses a deterministic idempotency key; sending different content to the same occupied release returns HTTP 409. Use a new version for a different SBOM. The GitLab template defaults an empty `VERSION` to the tag or short commit SHA, unless targeting `CRACKEN_RELEASE_ID`. The Action requires an explicit `release` for product targets.
 
+### Yocto and SPDX conversion
+
+Use `generate: yocto-pack` with `generator-input` pointing to a Yocto images directory or `.spdx.tar.zst`. The runner needs Python 3 and, for compressed archives, `zstd`. The generated ZIP contains the SPDX 2.2 document set or one complete SPDX 3.0.0/3.0.1 rootfs document. Mixed versions and SPDX 3.1 or later are refused. Both archive limits are 16 MiB. Review the selected inventory before upload.
+
+Use `generate: convert-spdx` and `generator-input` for SPDX 2.2/2.3 RDF, YAML or XML. Install the external Apache-2.0 `spdx-tools` package and make `pyspdxtools` available on PATH; the action does not install or bundle it. SPDX 3 conversion is not supported. Both generation modes retain `sbom-path` for the job. See [the workflow examples](examples/github.yml).
+
 ### Outputs
 
 | Output | Value |
 |---|---|
-| `sbom-path` | Generated SBOM path, only with `generate: syft`; retained for later artifact steps in the same job |
+| `sbom-path` | Generated SBOM path, with any generation mode; retained for later artifact steps in the same job |
 | `upload-id` | API `sbom_upload_id` |
 | `analysis-id` | API `analysis_id` |
 | `analysis-status` | Latest observed status; `queued` after upload without waiting |
@@ -110,7 +117,7 @@ GitHub example (after checkout):
 # A later artifact step can archive ${{ steps.cracken.outputs.sbom-path }}.
 ```
 
-Do not set `sbom-file` together with `generate: syft`. The generator scans `dir:<scan-path>`, excludes `./.git` and `./.github`, disables the `github-actions-usage-cataloger` and `github-action-workflow-usage-cataloger` catalogers so CI tooling is left out of the product inventory, and sets the source name and version from `GITHUB_REPOSITORY` / `GITHUB_SHA` or `CI_PROJECT_PATH` / `CI_COMMIT_SHA` when available. It writes CycloneDX JSON to a private temporary directory, then passes that exact file to the unchanged upload script. The source directory remains in CycloneDX `metadata.component`; package metadata files such as `package-lock.json` may still appear in `components[]` with type `file`. These are retained for server-side classification. SBOM content is never printed. The generated file remains available until the runner removes its temporary files; archive it during the same job.
+Do not set `sbom-file` together with `generate: syft`. The generator scans `dir:<scan-path>`, excludes `./.git` and `./.github`, disables the `github-actions-usage-cataloger` and `github-action-workflow-usage-cataloger` catalogers so CI tooling is left out of the product inventory, and sets the source name and version from `GITHUB_REPOSITORY` / `GITHUB_SHA` or `CI_PROJECT_PATH` / `CI_COMMIT_SHA` when available. It writes CycloneDX JSON to a private temporary directory, then passes that exact file to the upload script. The source directory remains in CycloneDX `metadata.component`; package metadata files such as `package-lock.json` may still appear in `components[]` with type `file`. These are retained for server-side classification. SBOM content is never printed. The generated file remains available until the runner removes its temporary files; archive it during the same job.
 
 GitLab example (use an access-controlled mirror of this repository):
 
@@ -175,7 +182,7 @@ Keep `provenance.json` and `quality.json` in your own environment. Review the ge
 
 Use HTTPS. HTTP is allowed only for loopback tests (`localhost`, `127.0.0.1`, `[::1]`). URLs must not contain credentials, queries or fragments. The upload script does not follow redirects; official syft release downloads follow HTTPS redirects to GitHub asset storage. It disables shell tracing and passes the bearer header to curl over standard input, keeping it out of curl's command arguments. Do not trace or print secrets in your surrounding CI steps. API error messages are screened for API key text before logging.
 
-Send **one uncompressed JSON object**, supported as CycloneDX JSON, SPDX 2 JSON or SPDX 3 JSON-LD, at most **10 MiB (10,485,760 bytes)** including whitespace and an optional UTF-8 BOM. The script checks raw bytes before sending. XML, SPDX tag-value and ZIP/gzip bodies are not supported. The database's 16 MiB stored SPDX 3 ceiling does not increase the API upload allowance. Oversized requests receive HTTP 413 `payload_too_large`; a timeout is not proof of a received 413. The client uses a 120-second per-request ceiling, bounded by the remaining configured timeout.
+Send one CycloneDX or SPDX JSON object up to **10 MiB**, or an explicit `.zip` up to **16 MiB packed and 16 MiB unpacked**. The ZIP can contain an SPDX 2 document set, one complete SPDX 3.0.0/3.0.1 document, or CycloneDX documents. The API checks archive safety and contents; unsafe archives, archives without an SBOM, and oversized archives are rejected. gzip and tar bodies are not accepted. The client uses a 120-second per-request ceiling, bounded by the remaining configured timeout.
 
 API write limits are 10 requests/minute per key, 20/minute and 200/day per company. The inherited curl retry behavior retries transient errors with the same idempotency key. Use a dedicated service account with only required scopes, rotate expiring keys and revoke exposed keys immediately.
 
@@ -189,6 +196,8 @@ Run the local fake-API suite without real credentials or an external API:
 shellcheck scripts/*.sh tests/*.sh # if installed
 bash tests/test-upload.sh
 bash tests/test-generate.sh
+bash tests/test-yocto-pack.sh
+bash tests/test-convert-spdx.sh
 bash tests/test-gitlab.sh
 python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' action.yml gitlab/cracken.gitlab-ci.yml examples/*.yml
 # If installed: actionlint examples/github.yml

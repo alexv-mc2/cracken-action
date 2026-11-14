@@ -27,6 +27,33 @@ run() {
   checks=$((checks+1)); echo "ok $checks - $mode (exit $actual)"
 }
 run success 0
+python3 - "$tmp/test.zip" <<'PYZIP'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'w') as archive:
+    archive.writestr('bom.json', '{"bomFormat":"CycloneDX"}')
+PYZIP
+SBOM_FILE="$tmp/test.zip" run zip 0
+mkdir -p "$tmp/yocto" "$tmp/toolbin"
+printf '%s' '{"spdxVersion":"SPDX-2.2","externalDocumentRefs":[]}' > "$tmp/yocto/image.spdx.json"
+: > "$GITHUB_OUTPUT"
+CRACKEN_API_URL="http://127.0.0.1:$port/zip/functions/v1/api-v1" CRACKEN_GENERATE=yocto-pack GENERATOR_INPUT="$tmp/yocto" SBOM_FILE='' WAIT=0 sh scripts/generate-syft.sh > "$tmp/log" 2>&1
+[[ -f "$(sed -n 's/^sbom-path=//p' "$GITHUB_OUTPUT")" ]]
+checks=$((checks+1)); echo "ok $checks - yocto generation and ZIP upload"
+cat > "$tmp/toolbin/pyspdxtools" <<'TOOL'
+#!/bin/sh
+printf '%s' '{"spdxVersion":"SPDX-2.3"}' > "$4"
+TOOL
+chmod +x "$tmp/toolbin/pyspdxtools"
+: > "$GITHUB_OUTPUT"
+CRACKEN_API_URL="http://127.0.0.1:$port/success/functions/v1/api-v1" CRACKEN_GENERATE=convert-spdx GENERATOR_INPUT="$tmp/yocto/image.spdx.json" SBOM_FILE='' WAIT=0 PATH="$tmp/toolbin:$PATH" sh scripts/generate-syft.sh > "$tmp/log" 2>&1
+[[ -f "$(sed -n 's/^sbom-path=//p' "$GITHUB_OUTPUT")" ]]
+checks=$((checks+1)); echo "ok $checks - SPDX conversion and JSON upload"
+for generator in yocto-pack convert-spdx; do
+  if CRACKEN_GENERATE="$generator" GENERATOR_INPUT="$tmp/yocto" sh scripts/generate-syft.sh > "$tmp/log" 2>&1; then echo "FAIL: $generator accepted explicit sbom-file"; exit 1; fi
+  grep -q 'Do not combine' "$tmp/log"
+  checks=$((checks+1)); echo "ok $checks - $generator conflicts with sbom-file"
+done
+run success 0
 grep -q '^high=1$' "$GITHUB_OUTPUT"
 grep -q '^unknown=1$' "$GITHUB_OUTPUT"
 grep -q '^upload-id=' "$GITHUB_OUTPUT"

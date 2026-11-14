@@ -21,6 +21,10 @@ jobs:
         run: bash tests/test-upload.sh
       - name: Generation tests
         run: bash tests/test-generate.sh
+      - name: Yocto and SPDX conversion tests
+        run: |
+          bash tests/test-yocto-pack.sh
+          bash tests/test-convert-spdx.sh
       - name: GitLab template tests
         run: bash tests/test-gitlab.sh
       - name: shellcheck

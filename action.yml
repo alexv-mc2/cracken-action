@@ -22,11 +22,14 @@ inputs:
   release-id:
     description: Existing empty release UUID; alternative to product and release.
   sbom-file:
-    description: JSON SBOM path; auto detects bom.json, sbom.cdx.json or one *.spdx.json.
+    description: JSON or ZIP SBOM path; auto detects bom.json, sbom.cdx.json or one *.spdx.json.
     default: ''
   generate:
-    description: Generate a repository SBOM with syft, or upload an existing file (none).
+    description: syft, yocto-pack, convert-spdx, or none to upload an existing file.
     default: none
+  generator-input:
+    description: Yocto images directory or .spdx.tar.zst for yocto-pack; SPDX 2.2/2.3 RDF, YAML or XML file for convert-spdx.
+    default: ''
   syft-version:
     description: Exact stable syft version (without v).
     default: '1.55.0'
@@ -94,6 +97,7 @@ runs:
         VERSION: ${{ inputs.release }}
         SBOM_FILE: ${{ inputs.sbom-file }}
         CRACKEN_GENERATE: ${{ inputs.generate }}
+        GENERATOR_INPUT: ${{ inputs.generator-input }}
         SYFT_VERSION: ${{ inputs.syft-version }}
         SCAN_PATH: ${{ inputs.scan-path }}
         SYFT_INSECURE_SKIP_PIN: ${{ inputs.syft-insecure-skip-pin }}

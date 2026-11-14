@@ -38,3 +38,28 @@ jobs:
           wait: 'true'
           fail-on: high
       # Archive ${{ steps.cracken.outputs.sbom-path }} with your reviewed artifact action.
+
+  yocto-pack-and-upload:
+    runs-on: self-hosted # Requires Python 3 and zstd for .tar.zst input.
+    steps:
+      - uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
+        with:
+          api-token: ${{ secrets.CRACKEN_API_KEY }}
+          project: ${{ vars.CRACKEN_PROJECT_ID }}
+          release: ${{ github.sha }}-yocto
+          generate: yocto-pack
+          generator-input: tmp/deploy/images/machine/
+
+  convert-and-upload:
+    runs-on: self-hosted # Install the external pyspdxtools CLI first.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: alexv-mc2/cracken-action@REPLACE_WITH_FULL_COMMIT_SHA
+        with:
+          api-token: ${{ secrets.CRACKEN_API_KEY }}
+          project: ${{ vars.CRACKEN_PROJECT_ID }}
+          release: ${{ github.sha }}-converted
+          generate: convert-spdx
+          generator-input: input.spdx.yaml

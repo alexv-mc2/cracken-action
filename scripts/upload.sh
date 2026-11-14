@@ -41,12 +41,16 @@ if [ -z "${SBOM_FILE:-}" ]; then
     done
   fi
 fi
-[ -n "${SBOM_FILE:-}" ] || fail 'Set SBOM_FILE to a readable JSON file.'
+[ -n "${SBOM_FILE:-}" ] || fail 'Set SBOM_FILE to a readable JSON or ZIP file.'
 
 case "$SBOM_FILE" in /*) ;; *) SBOM_FILE=./$SBOM_FILE ;; esac
 [ -r "$SBOM_FILE" ] || fail 'Set SBOM_FILE to a readable JSON file.'
-# Count the file's raw bytes, including any BOM and surrounding whitespace.
-[ "$(wc -c < "$SBOM_FILE")" -le 10485760 ] || fail 'The SBOM exceeds the 10 MiB limit for a single JSON file, including SPDX 3.'
+# ZIP is accepted by API v1 with a 16 MiB packed limit.
+case "$SBOM_FILE" in
+  *.[zZ][iI][pP]) content_type=application/zip; limit=16777216 ;;
+  *) content_type=; limit=10485760 ;;
+esac
+[ "$(wc -c < "$SBOM_FILE")" -le "$limit" ] || fail 'The SBOM exceeds the upload size limit.'
 curl_version=$(curl --version | awk 'NR == 1 { print $2 }')
 printf '%s
 ' "$curl_version" | awk -F. '{ exit !($1 > 7 || ($1 == 7 && $2 >= 76)) }' || fail 'curl 7.76 or later is required.'
@@ -100,7 +104,7 @@ else
   fi
   target="$target&version=$(encode "$VERSION")"
 fi
-content_type=$(jq -er 'if .bomFormat == "CycloneDX" then "application/vnd.cyclonedx+json" elif (.spdxVersion // "" | startswith("SPDX-2.")) or has("@context") then "application/spdx+json" else error("format") end' "$SBOM_FILE" 2>/dev/null) || fail 'Use a CycloneDX or SPDX JSON SBOM.'
+[ -n "$content_type" ] || content_type=$(jq -er 'if .bomFormat == "CycloneDX" then "application/vnd.cyclonedx+json" elif (.spdxVersion // "" | startswith("SPDX-2.")) or has("@context") then "application/spdx+json" else error("format") end' "$SBOM_FILE" 2>/dev/null) || fail 'Use a CycloneDX or SPDX JSON SBOM.'
 if command -v sha256sum >/dev/null 2>&1; then
   digest() { sha256sum | awk '{ print $1 }'; }
 elif command -v shasum >/dev/null 2>&1; then

@@ -23,7 +23,9 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def do_POST(self):
-        self.rfile.read(int(self.headers['Content-Length']))
+        payload = self.rfile.read(int(self.headers['Content-Length']))
+        if urlparse(self.path).path.startswith('/zip/'):
+            assert self.headers['Content-Type'] == 'application/zip' and payload.startswith(b'PK')
         assert self.headers['Authorization'].startswith('Bearer crk_')
         path = urlparse(self.path).path
         mode = path.split('/')[1]
