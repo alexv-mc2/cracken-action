@@ -24,7 +24,7 @@ export GITHUB_REPOSITORY=customer/repository GITHUB_SHA=abcdef1234567890
 export CRACKEN_GENERATE=syft SYFT_VERSION=1.55.0 SCAN_PATH="$tmp/source with spaces"
 export CRACKEN_SYFT_TEST_MODE=1 SYFT_DOWNLOAD_BASE="file://$tmp/releases"
 export PATH="$tmp/bin:$PATH"
-unset SBOM_FILE SYFT_INSECURE_SKIP_PIN
+unset SBOM_FILE SYFT_INSECURE_SKIP_PIN GENERATOR_INPUT
 cat > "$tmp/good-syft" <<'FAKE'
 #!/bin/sh
 set -eu
@@ -84,6 +84,30 @@ PY
 SBOM_FILE="$sbom" run 'explicit SBOM and generation conflict' 1
 SYFT_VERSION=1.54.1 run 'unpinned version rejected even on PATH' 1
 CRACKEN_GENERATE=invalid run 'invalid generator rejected' 1
+# Input intended for another generator must fail before scanning or uploading.
+reject_generator_input() {
+  local label=$1
+  cp "$tmp/records" "$tmp/records-before-input"
+  python3 - "$TMPDIR" "$tmp/dirs-before-input" <<'PY'
+from pathlib import Path
+import sys
+Path(sys.argv[2]).write_text("\n".join(sorted(p.name for p in Path(sys.argv[1]).iterdir())))
+PY
+  GENERATOR_INPUT='unexpected-input' run "$label" 1
+  grep -Fxq 'generator-input is only supported with yocto-pack or convert-spdx.' "$tmp/log"
+  cmp "$tmp/records" "$tmp/records-before-input"
+  [[ ! -e "$FAKE_SYFT_ARGS" && ! -e "$CRACKEN_SBOM_PATH_FILE" && ! -s "$GITHUB_OUTPUT" ]]
+  python3 - "$TMPDIR" "$tmp/dirs-before-input" <<'PY'
+from pathlib import Path
+import sys
+assert Path(sys.argv[2]).read_text() == "\n".join(sorted(p.name for p in Path(sys.argv[1]).iterdir()))
+PY
+}
+reject_generator_input 'syft rejects generator-input before generation or upload'
+SBOM_FILE="$sbom" CRACKEN_GENERATE=none reject_generator_input 'none rejects generator-input before upload'
+unset CRACKEN_GENERATE
+SBOM_FILE="$sbom" reject_generator_input 'default none rejects generator-input before upload'
+export CRACKEN_GENERATE=syft
 # Compare the none path byte-for-byte with the existing upload script outputs/logs.
 SBOM_FILE="$sbom" CRACKEN_GENERATE=none run 'none uploads an existing SBOM unchanged' 0
 cp "$GITHUB_OUTPUT" "$tmp/none-output"; cp "$tmp/log" "$tmp/none-log"

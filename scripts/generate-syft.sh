@@ -6,10 +6,11 @@ umask 077
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 case "${CRACKEN_GENERATE:-none}" in
-  none) exec sh "$script_dir/upload.sh" ;;
-  syft|yocto-pack|convert-spdx) ;;
+  none|syft) [ -z "${GENERATOR_INPUT:-}" ] || fail 'generator-input is only supported with yocto-pack or convert-spdx.' ;;
+  yocto-pack|convert-spdx) ;;
   *) fail 'CRACKEN_GENERATE must be none, syft, yocto-pack or convert-spdx.' ;;
 esac
+[ "${CRACKEN_GENERATE:-none}" != none ] || exec sh "$script_dir/upload.sh"
 [ -z "${SBOM_FILE:-}" ] || fail 'Do not combine SBOM_FILE (sbom-file) with generation.'
 if [ "${CRACKEN_GENERATE:-none}" != syft ]; then
   [ -n "${GENERATOR_INPUT:-}" ] || fail 'Set generator-input for yocto-pack or convert-spdx.'

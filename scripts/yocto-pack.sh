@@ -10,6 +10,7 @@ python3 - "$1" "$2" <<'PY'
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 import sys
 import tarfile
@@ -34,6 +35,25 @@ def safe_name(name):
 def candidate(name):
     return name.endswith('.spdx.json') or name.endswith('.spdx.index.json')
 
+def supported_spdx3_context(context):
+    # Match the server's spdx3Context traversal and supported URL allowlist.
+    entries = []
+    pending = [(context, 0)]
+    while pending:
+        value, depth = pending.pop()
+        if depth > 4:
+            return False
+        if isinstance(value, str):
+            entries.append(value)
+        elif isinstance(value, (dict, list)):
+            values = value.values() if isinstance(value, dict) else value
+            pending.extend((entry, depth + 1) for entry in values)
+    contexts = [entry for entry in entries if re.search(r'spdx\.org/rdf/3', entry, re.I)]
+    return bool(contexts) and all(
+        re.fullmatch(r'https?://spdx\.org/rdf/3\.0\.[01]/spdx-context\.jsonld', entry, re.I)
+        for entry in contexts
+    )
+
 entries = []
 total = 0
 seen = set()
@@ -51,9 +71,9 @@ def add(name, data):
     entries.append((name, data))
 
 try:
-    if source.is_symlink():
-        fail('unsafe symlink input')
+    source = source.resolve(strict=True)
     if source.is_dir():
+        paths = {}
         for root, dirs, files in os.walk(source, followlinks=False):
             # Do not follow directory symlinks. Deploy directories commonly contain
             # unrelated symlinks; SPDX file symlinks must stay within the input.
@@ -62,14 +82,19 @@ try:
                 path = Path(root) / item
                 name = path.relative_to(source).as_posix()
                 if candidate(name):
-                    if path.is_symlink():
-                        try:
-                            path.resolve(strict=True).relative_to(source.resolve())
-                        except (ValueError, OSError):
-                            fail('unsafe symlink in input: ' + str(path))
-                    if path.stat().st_size > LIMIT - total:
-                        fail('SPDX files exceed the 16 MiB uncompressed ZIP limit')
-                    add(name, path.read_bytes())
+                    try:
+                        real_path = path.resolve(strict=True)
+                        real_path.relative_to(source)
+                    except (ValueError, OSError, RuntimeError):
+                        fail('unsafe symlink in input: ' + str(path))
+                    # Prefer the real file's name when both it and IMAGE_LINK_NAME
+                    # are collected, independently of directory traversal order.
+                    if real_path not in paths or not path.is_symlink():
+                        paths[real_path] = name
+        for path, name in paths.items():
+            if path.stat().st_size > LIMIT - total:
+                fail('SPDX files exceed the 16 MiB uncompressed ZIP limit')
+            add(name, path.read_bytes())
     elif source.is_file() and str(source).endswith('.spdx.tar.zst'):
         try:
             proc = subprocess.Popen(['zstd', '-q', '-d', '-c', '--', str(source)], stdout=subprocess.PIPE)
@@ -128,7 +153,10 @@ try:
                 versions.add('3')
             elif version.startswith('3.'):
                 fail('SPDX ' + version + ' is not supported; use SPDX 3.0.0 or 3.0.1')
-        if name.endswith('.rootfs.spdx.json') and any(v in found for v in ('3.0.0', '3.0.1')):
+        is_spdx3 = any(v in found for v in ('3.0.0', '3.0.1'))
+        if is_spdx3 and not supported_spdx3_context(doc.get('@context') if isinstance(doc, dict) else None):
+            fail('SPDX 3 requires a supported 3.0.0 or 3.0.1 @context: ' + name)
+        if name.endswith('.rootfs.spdx.json') and is_spdx3:
             roots.append((name, data))
     if len(versions) > 1:
         fail('mixed SPDX 2 and SPDX 3 documents are not supported')
