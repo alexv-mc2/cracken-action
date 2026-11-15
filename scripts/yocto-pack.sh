@@ -55,19 +55,14 @@ def supported_spdx3_context(context):
     )
 
 entries = []
-total = 0
 seen = set()
 def add(name, data):
-    global total
     name = safe_name(name)
     if not candidate(name):
         return
     if name in seen:
         fail('duplicate SPDX archive path: ' + name)
     seen.add(name)
-    total += len(data)
-    if total > LIMIT:
-        fail('SPDX files exceed the 16 MiB uncompressed ZIP limit')
     entries.append((name, data))
 
 try:
@@ -103,8 +98,6 @@ try:
                     if real_path not in paths or not path.is_symlink():
                         paths[real_path] = name
         for path, name in paths.items():
-            if path.stat().st_size > LIMIT - total:
-                fail('SPDX files exceed the 16 MiB uncompressed ZIP limit')
             add(name, path.read_bytes())
     elif source.is_file() and str(source).endswith('.spdx.tar.zst'):
         try:
@@ -120,8 +113,6 @@ try:
                     if not (member.isfile() or member.isdir()):
                         fail('unsafe archive entry: ' + name)
                     if member.isfile() and candidate(name):
-                        if member.size > LIMIT - total:
-                            fail('SPDX files exceed the 16 MiB uncompressed ZIP limit')
                         stream = archive.extractfile(member)
                         add(name, stream.read())
             proc.stdout.close()
@@ -177,6 +168,8 @@ try:
         entries = roots
     elif versions != {'2'}:
         fail('no supported SPDX 2 or SPDX 3 version found')
+    if sum(len(data) for _, data in entries) > LIMIT:
+        fail('SPDX files exceed the 16 MiB uncompressed ZIP limit')
     if len(entries) > 10000:
         fail('ZIP exceeds the 10,000 entry limit')
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -185,7 +178,11 @@ try:
     try:
         with zipfile.ZipFile(temp, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
             for name, data in sorted(entries):
-                archive.writestr(name, data)
+                info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                info.create_system = 3
+                info.external_attr = 0o100644 << 16
+                info.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(info, data)
         if os.path.getsize(temp) > LIMIT:
             fail('ZIP exceeds the 16 MiB packed limit')
         os.replace(temp, output)

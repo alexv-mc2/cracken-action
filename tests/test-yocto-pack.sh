@@ -33,6 +33,21 @@ printf '%s' '{"@context":"https://spdx.org/rdf/3.1.0/spdx-context.jsonld","@grap
 cp "$tmp/v2/image.spdx.json" "$tmp/mixed/"
 cp "$tmp/v3/image.rootfs.spdx.json" "$tmp/mixed/"
 pack 'SPDX 2 directory includes the document set' "$tmp/v2" "$tmp/v2.zip" 4
+sleep 3
+pack 'same SPDX input can be packed again' "$tmp/v2" "$tmp/v2-again.zip" 4
+python3 - "$tmp/v2.zip" "$tmp/v2-again.zip" <<'PY'
+import hashlib, pathlib, sys, zipfile
+first, second = (pathlib.Path(path) for path in sys.argv[1:])
+assert hashlib.sha256(first.read_bytes()).digest() == hashlib.sha256(second.read_bytes()).digest()
+with zipfile.ZipFile(first) as archive:
+    assert archive.namelist() == sorted(archive.namelist())
+    for entry in archive.infolist():
+        assert entry.date_time == (1980, 1, 1, 0, 0, 0)
+        assert entry.create_system == 3
+        assert entry.external_attr >> 16 == 0o100644
+        assert entry.compress_type == zipfile.ZIP_DEFLATED
+PY
+checks=$((checks+1)); echo "ok $checks - repeat packing has identical SHA-256 and fixed ZIP metadata"
 python3 - "$tmp/v2.zip" <<'PY'
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as z:
@@ -63,6 +78,34 @@ refuse 'directory symlink outside input' "$tmp/outside" 'unsafe symlink in input
 cp "$tmp/v3/image.rootfs.spdx.json" "$tmp/two-roots/first.rootfs.spdx.json"
 cp "$tmp/v3/image.rootfs.spdx.json" "$tmp/two-roots/second.rootfs.spdx.json"
 refuse 'two different real rootfs files' "$tmp/two-roots" 'SPDX 3 requires exactly one complete *.rootfs.spdx.json'
+
+# Only the selected SPDX 3 root counts against the uncompressed upload limit.
+python3 - "$tmp" <<'PY'
+import json, pathlib, sys, tarfile
+root = pathlib.Path(sys.argv[1])
+url = 'https://spdx.org/rdf/3.0.1/spdx-context.jsonld'
+small = {'@context': url, '@graph': [{'type': 'CreationInfo', 'specVersion': '3.0.1'}]}
+large = dict(small, padding='x' * (16 * 1024 * 1024))
+unused = root / 'large-unused'
+unused.mkdir()
+(unused / 'image.rootfs.spdx.json').write_text(json.dumps(small))
+(unused / 'recipe.spdx.json').write_text(json.dumps(large))
+selected = root / 'large-selected'
+selected.mkdir()
+(selected / 'image.rootfs.spdx.json').write_text(json.dumps(large))
+with tarfile.open(root / 'large-unused.tar', 'w') as archive:
+    for path in sorted(unused.iterdir()):
+        archive.add(path, arcname=path.name)
+PY
+pack 'unused SPDX 3 documents over 16 MiB do not count' "$tmp/large-unused" "$tmp/large-unused.zip" 1
+python3 - "$tmp/large-unused.zip" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    assert archive.namelist() == ['image.rootfs.spdx.json']
+PY
+zstd -q "$tmp/large-unused.tar" -o "$tmp/large-unused.spdx.tar.zst"
+pack 'unused SPDX 3 documents in tar do not count' "$tmp/large-unused.spdx.tar.zst" "$tmp/large-unused-tar.zip" 1
+refuse 'selected SPDX 3 root over 16 MiB' "$tmp/large-selected" 'SPDX files exceed the 16 MiB uncompressed ZIP limit'
 
 python3 - "$tmp" <<'PY'
 import io, pathlib, sys, tarfile
