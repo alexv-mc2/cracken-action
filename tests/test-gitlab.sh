@@ -13,9 +13,17 @@ block = source.split('  script:\n    - |\n', 1)[1]
 assert all(not line.strip() or line.startswith('      ') for line in block.splitlines())
 Path(sys.argv[1]).write_text('\n'.join(line[6:] for line in block.splitlines()) + '\n')
 PY
-for name in upload generate-syft; do
+for name in upload generate-syft yocto-pack convert-spdx; do
   printf '#!/bin/sh\nprintf "%%s\\n" "%s" >> "$EXECUTED"\n' "$name" > "$tmp/fixtures/$name.sh"
 done
+cat > "$tmp/fixtures/generate-syft.sh" <<'GENERATOR'
+#!/bin/sh
+set -eu
+case "$CRACKEN_GENERATE" in
+  yocto-pack|convert-spdx) test -f "$(dirname "$0")/$CRACKEN_GENERATE.sh" ;;
+esac
+printf '%s\n' generate-syft >> "$EXECUTED"
+GENERATOR
 cat > "$tmp/bin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -45,6 +53,8 @@ prefix=https://api.github.com/repos/alexv-mc2/cracken-action/contents/scripts/
 case "$url" in
   "${prefix}upload.sh?ref=$CRACKEN_ACTION_SHA") name=upload.sh ;;
   "${prefix}generate-syft.sh?ref=$CRACKEN_ACTION_SHA") name=generate-syft.sh ;;
+  "${prefix}yocto-pack.sh?ref=$CRACKEN_ACTION_SHA") name=yocto-pack.sh ;;
+  "${prefix}convert-spdx.sh?ref=$CRACKEN_ACTION_SHA") name=convert-spdx.sh ;;
   *) exit 99 ;;
 esac
 printf '%s\n' "$name" >> "$REQUESTS"
@@ -57,6 +67,8 @@ export CRACKEN_ACTION_SHA=1111111111111111111111111111111111111111
 export VERSION=1.0 CRACKEN_RELEASE_ID=''
 upload_hash=$(shasum -a 256 "$FIXTURES/upload.sh" | awk '{print $1}')
 generate_hash=$(shasum -a 256 "$FIXTURES/generate-syft.sh" | awk '{print $1}')
+yocto_hash=$(shasum -a 256 "$FIXTURES/yocto-pack.sh" | awk '{print $1}')
+convert_hash=$(shasum -a 256 "$FIXTURES/convert-spdx.sh" | awk '{print $1}')
 checks=0
 run() {
   local label=$1 expected=$2 executed=$3 requests=$4 actual=0
@@ -73,9 +85,24 @@ for token in unset empty set; do
   unset CRACKEN_REPO_TOKEN
   case "$token" in empty) export CRACKEN_REPO_TOKEN='' ;; set) export CRACKEN_REPO_TOKEN=fixture-repo-token ;; esac
   export CRACKEN_SCRIPT_SHA256=$upload_hash CRACKEN_GENERATE_SCRIPT_SHA256=$generate_hash
+  export CRACKEN_YOCTO_PACK_SCRIPT_SHA256=$yocto_hash CRACKEN_CONVERT_SPDX_SCRIPT_SHA256=$convert_hash
   CRACKEN_GENERATE=none run "$token token: upload" 0 upload upload.sh
   export CRACKEN_GENERATE=syft
   run "$token token: generation" 0 generate-syft $'upload.sh\ngenerate-syft.sh'
+  for mode in yocto-pack convert-spdx; do
+    CRACKEN_GENERATE=$mode run "$token token: $mode generation" 0 generate-syft "$(printf 'upload.sh\ngenerate-syft.sh\n%s.sh' "$mode")"
+    for bad_hash in '' invalid "$(printf '%064d' 0)"; do
+      helper_requests=$'upload.sh\ngenerate-syft.sh'
+      if [[ ${#bad_hash} == 64 ]]; then helper_requests+=$(printf '\n%s.sh' "$mode"); fi
+      if [[ "$mode" == yocto-pack ]]; then
+        CRACKEN_GENERATE=$mode CRACKEN_YOCTO_PACK_SCRIPT_SHA256=$bad_hash run "$token token: bad $mode hash [$bad_hash]" 1 '' "$helper_requests"
+      else
+        CRACKEN_GENERATE=$mode CRACKEN_CONVERT_SPDX_SCRIPT_SHA256=$bad_hash run "$token token: bad $mode hash [$bad_hash]" 1 '' "$helper_requests"
+      fi
+    done
+  done
+  CRACKEN_GENERATE=unsupported run "$token token: unsupported generation" 1 '' upload.sh
+  grep -Fq 'CRACKEN_GENERATE must be none, syft, yocto-pack or convert-spdx.' "$tmp/log"
   CRACKEN_ACTION_SHA=invalid run "$token token: invalid commit pin" 1 '' ''
   for bad_hash in '' invalid "$(printf '%064d' 0)"; do
     upload_requests=''

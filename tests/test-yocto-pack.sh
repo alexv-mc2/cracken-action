@@ -97,6 +97,30 @@ with tarfile.open(sys.argv[2], 'w') as t:
 PYTAR
 zstd -q "$tmp/valid.tar" -o "$tmp/valid.spdx.tar.zst"
 pack 'compressed SPDX archive' "$tmp/valid.spdx.tar.zst" "$tmp/from-tar.zip" 4
+mkdir -p "$tmp/kirkstone" "$tmp/no-zstd-bin"
+cp "$tmp/valid.spdx.tar.zst" "$tmp/kirkstone/image.spdx.tar.zst"
+printf '%s' '{"index":[]}' > "$tmp/kirkstone/image.spdx.index.json"
+pack 'kirkstone directory uses its archive instead of the index' "$tmp/kirkstone" "$tmp/kirkstone.zip" 4
+python3 - "$tmp/from-tar.zip" "$tmp/kirkstone.zip" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as direct, zipfile.ZipFile(sys.argv[2]) as directory:
+    assert direct.namelist() == directory.namelist()
+    assert all(direct.read(name) == directory.read(name) for name in direct.namelist())
+PY
+ln -s "$(command -v python3)" "$tmp/no-zstd-bin/python3"
+if PATH="$tmp/no-zstd-bin" /bin/bash scripts/yocto-pack.sh "$tmp/kirkstone" "$tmp/no-zstd.zip" >"$tmp/log" 2>&1; then
+  echo 'FAIL: directory accepted without zstd'; exit 1
+fi
+grep -Fq 'pass the .spdx.tar.zst file' "$tmp/log"
+[[ ! -e "$tmp/no-zstd.zip" ]]
+checks=$((checks+1)); echo "ok $checks - missing zstd gives archive guidance"
+cp "$tmp/valid.spdx.tar.zst" "$tmp/kirkstone/other.spdx.tar.zst"
+refuse 'multiple archives' "$tmp/kirkstone" 'multiple .spdx.tar.zst candidates:'
+grep -Fq "$tmp/kirkstone/image.spdx.tar.zst" "$tmp/log"
+grep -Fq "$tmp/kirkstone/other.spdx.tar.zst" "$tmp/log"
+rm "$tmp/kirkstone/other.spdx.tar.zst" "$tmp/kirkstone/image.spdx.tar.zst"
+cp "$tmp/parent.spdx.tar.zst" "$tmp/kirkstone/unsafe.spdx.tar.zst"
+refuse 'directory archive retains traversal protection' "$tmp/kirkstone" 'unsafe archive path: ../escape.spdx.json'
 ln -s valid.spdx.tar.zst "$tmp/image.spdx.tar.zst"
 pack 'top-level archive symlink' "$tmp/image.spdx.tar.zst" "$tmp/from-link.zip" 4
 python3 - "$tmp/from-tar.zip" "$tmp/from-link.zip" <<'PY'

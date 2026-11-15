@@ -73,6 +73,17 @@ def add(name, data):
 try:
     source = source.resolve(strict=True)
     if source.is_dir():
+        archives = sorted(source.glob('*.spdx.tar.zst'))
+        if len(archives) > 1:
+            fail('multiple .spdx.tar.zst candidates: ' + ', '.join(str(path) for path in archives))
+        if archives:
+            try:
+                archive_path = archives[0].resolve(strict=True)
+                archive_path.relative_to(source)
+            except (ValueError, OSError, RuntimeError):
+                fail('unsafe symlink in input: ' + str(archives[0]))
+            source = archive_path
+    if source.is_dir():
         paths = {}
         for root, dirs, files in os.walk(source, followlinks=False):
             # Do not follow directory symlinks. Deploy directories commonly contain
@@ -99,7 +110,7 @@ try:
         try:
             proc = subprocess.Popen(['zstd', '-q', '-d', '-c', '--', str(source)], stdout=subprocess.PIPE)
         except FileNotFoundError:
-            fail('zstd is required to unpack .spdx.tar.zst')
+            fail('zstd is required to unpack archives; pass the .spdx.tar.zst file when zstd is unavailable')
         try:
             with tarfile.open(fileobj=proc.stdout, mode='r|') as archive:
                 for member in archive:
