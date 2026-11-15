@@ -107,6 +107,41 @@ zstd -q "$tmp/large-unused.tar" -o "$tmp/large-unused.spdx.tar.zst"
 pack 'unused SPDX 3 documents in tar do not count' "$tmp/large-unused.spdx.tar.zst" "$tmp/large-unused-tar.zip" 1
 refuse 'selected SPDX 3 root over 16 MiB' "$tmp/large-selected" 'SPDX files exceed the 16 MiB uncompressed ZIP limit'
 
+# Grow a candidate deterministically after fstat and before the directory read.
+python3 - "$tmp" <<'PYGROW'
+import contextlib, io, os, pathlib, sys
+root = pathlib.Path(sys.argv[1]).resolve() / 'growing'
+root.mkdir()
+candidate = root / 'image.spdx.json'
+candidate.write_bytes(b'{"spdxVersion":"SPDX-2.2"}')
+output = root / 'output.zip'
+script = pathlib.Path('scripts/yocto-pack.sh').read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
+original_fstat = os.fstat
+grew = False
+def growing_fstat(fd):
+    global grew
+    stat = original_fstat(fd)
+    if not grew:
+        grew = True
+        with candidate.open('ab') as stream:
+            stream.write(b' ')
+    return stat
+os.fstat = growing_fstat
+sys.argv = ['yocto-pack', str(root), str(output)]
+stderr = io.StringIO()
+try:
+    with contextlib.redirect_stderr(stderr):
+        exec(compile(script, 'yocto-pack.sh', 'exec'), {})
+except SystemExit as exc:
+    assert exc.code == 1, exc.code
+else:
+    raise AssertionError('growing SPDX candidate was accepted')
+assert grew
+assert stderr.getvalue().strip() == 'yocto-pack: SPDX candidate file changed while reading: ' + str(candidate)
+assert not output.exists()
+PYGROW
+checks=$((checks+1)); echo "ok $checks - candidate growth during read is refused"
+
 # Sparse candidate bodies keep the fixtures small on disk. The second file
 # crosses the read limit, while neither candidate crosses it on its own.
 python3 - "$tmp" <<'PY'

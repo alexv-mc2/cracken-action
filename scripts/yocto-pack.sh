@@ -109,7 +109,7 @@ try:
             with path.open('rb') as stream:
                 size = os.fstat(stream.fileno()).st_size
                 reserve_read(size)
-                data = stream.read(size)
+                data = stream.read(size + 1)
                 if len(data) != size:
                     fail('SPDX candidate file changed while reading: ' + str(path))
                 add(name, data)
