@@ -107,6 +107,30 @@ zstd -q "$tmp/large-unused.tar" -o "$tmp/large-unused.spdx.tar.zst"
 pack 'unused SPDX 3 documents in tar do not count' "$tmp/large-unused.spdx.tar.zst" "$tmp/large-unused-tar.zip" 1
 refuse 'selected SPDX 3 root over 16 MiB' "$tmp/large-selected" 'SPDX files exceed the 16 MiB uncompressed ZIP limit'
 
+# Sparse candidate bodies keep the fixtures small on disk. The second file
+# crosses the read limit, while neither candidate crosses it on its own.
+python3 - "$tmp" <<'PY'
+import pathlib, sys, tarfile
+root = pathlib.Path(sys.argv[1])
+folder = root / 'read-limit'
+folder.mkdir()
+sizes = (64 * 1024 * 1024, 64 * 1024 * 1024 + 1)
+for index, size in enumerate(sizes):
+    with (folder / f'{index}.spdx.json').open('wb') as file:
+        file.truncate(size)
+with (root / 'read-limit.tar').open('wb') as file:
+    for index, size in enumerate(sizes):
+        member = tarfile.TarInfo(f'{index}.spdx.json')
+        member.size = size
+        file.write(member.tobuf())
+        file.seek((size + 511) // 512 * 512, 1)
+    file.write(b'\0' * 1024)
+PY
+read_limit_message='SPDX candidate files exceed the 128 MiB read limit; pass the image SPDX archive or a directory with only the image documents'
+refuse 'directory candidates exceed read limit' "$tmp/read-limit" "$read_limit_message"
+zstd -q "$tmp/read-limit.tar" -o "$tmp/read-limit.spdx.tar.zst"
+refuse 'archive candidates exceed read limit' "$tmp/read-limit.spdx.tar.zst" "$read_limit_message"
+
 python3 - "$tmp" <<'PY'
 import io, pathlib, sys, tarfile
 root = pathlib.Path(sys.argv[1])
